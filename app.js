@@ -15,7 +15,7 @@ let selectedEvent = null;
 
 
 /* =========================================================
-   INITIALISE
+   INITIALISATION
    ========================================================= */
 
 async function init() {
@@ -68,7 +68,10 @@ async function loadEventTypes() {
         .select("*")
         .order("name");
 
-    if (error) throw error;
+    if (error) {
+        console.error(error);
+        return;
+    }
 
     eventTypes = data || [];
 }
@@ -81,7 +84,10 @@ async function loadStaff() {
         .eq("active", true)
         .order("name");
 
-    if (error) throw error;
+    if (error) {
+        console.error(error);
+        return;
+    }
 
     staff = data || [];
 }
@@ -95,24 +101,24 @@ async function loadEvents() {
             event_types (
                 id,
                 name,
-                colour,
-                description
+                colour
             ),
             event_staff (
                 id,
                 staff_id,
-                role,
                 staff (
                     id,
                     name,
-                    discord_id
+                    active
                 )
             )
         `)
-        .order("event_date")
-        .order("start_time");
+        .order("start_time", { ascending: true });
 
-    if (error) throw error;
+    if (error) {
+        console.error(error);
+        return;
+    }
 
     events = data || [];
 }
@@ -121,17 +127,18 @@ async function loadEvents() {
 async function loadAccess() {
     currentAccess = null;
 
-    if (!currentUser) return;
+    if (!currentUser) {
+        return;
+    }
 
     const { data, error } = await supabaseClient
         .from("staff_access")
-        .select("access_level, active")
+        .select("*")
         .eq("user_id", currentUser.id)
-        .eq("active", true)
         .maybeSingle();
 
     if (error) {
-        console.error("Access check failed:", error);
+        console.error(error);
         return;
     }
 
@@ -139,73 +146,106 @@ async function loadAccess() {
 }
 
 
+/* =========================================================
+   PERMISSIONS
+   ========================================================= */
+
 function canManage() {
-    return currentAccess &&
-        ["manager", "admin"].includes(currentAccess.access_level);
+    if (!currentUser || !currentAccess) {
+        return false;
+    }
+
+    return (
+        currentAccess.role === "manager" ||
+        currentAccess.role === "admin"
+    );
 }
 
 
 function isAdmin() {
-    return currentAccess?.access_level === "admin";
+    return (
+        currentUser &&
+        currentAccess &&
+        currentAccess.role === "admin"
+    );
 }
 
 
 /* =========================================================
-   RENDER
+   MAIN RENDER
    ========================================================= */
 
 function render() {
+
     app.innerHTML = `
         <div class="schedule-app">
 
             <header class="schedule-header">
 
                 <div class="schedule-brand">
-                    <div class="schedule-logo">K</div>
+
+                    <div class="schedule-logo">
+                        <img src="city-logo-mark.png" alt="KNG">
+                    </div>
 
                     <div>
                         <h1>KNG Schedule</h1>
-                        <span>Events &amp; Staff Planning</span>
+                        <p>Events & Staff Planning</p>
                     </div>
+
                 </div>
 
                 <div class="schedule-header-actions">
 
-    ${
-        canManage()
-            ? `
-                <span class="mode-badge staff-mode">
-                    STAFF MODE
-                </span>
+                    ${
+                        canManage()
+                            ? `
+                                <span class="access-badge management">
+                                    STAFF MODE
+                                </span>
 
-                <button class="primary-button"
-                    onclick="openCreateEventModal()">
-                    + Create Event
-                </button>
+                                <button
+                                    class="primary-button"
+                                    onclick="openCreateEventModal()"
+                                >
+                                    + Create Event
+                                </button>
 
-                <button class="header-button"
-                    onclick="logout()">
-                    Logout
-                </button>
-              `
-            : `
-                <span class="mode-badge player-mode">
-                    PLAYER VIEW
-                </span>
+                                <button
+                                    class="secondary-button"
+                                    onclick="logout()"
+                                >
+                                    Logout
+                                </button>
+                              `
+                            : `
+                                <span class="access-badge player">
+                                    PLAYER VIEW
+                                </span>
 
-                <button class="header-button"
-                    onclick="openLogin()">
-                    Staff Login
-                </button>
-              `
-    }
+                                ${
+                                    currentUser
+                                        ? `
+                                            <button
+                                                class="secondary-button"
+                                                onclick="logout()"
+                                            >
+                                                Logout
+                                            </button>
+                                          `
+                                        : `
+                                            <button
+                                                class="secondary-button"
+                                                onclick="openLoginModal()"
+                                            >
+                                                Staff Login
+                                            </button>
+                                          `
+                                }
+                              `
+                    }
 
-    <button class="header-button"
-        onclick="goToday()">
-        Today
-    </button>
-
-</div>
+                </div>
 
             </header>
 
@@ -216,17 +256,32 @@ function render() {
 
                     <div class="calendar-navigation">
 
-                        <button onclick="previousPeriod()"
-                            aria-label="Previous">
+                        <button
+                            class="icon-button"
+                            onclick="previousPeriod()"
+                            aria-label="Previous"
+                        >
                             ‹
                         </button>
 
-                        <h2 id="calendarTitle"></h2>
+                        <button
+                            class="today-button"
+                            onclick="goToday()"
+                        >
+                            Today
+                        </button>
 
-                        <button onclick="nextPeriod()"
-                            aria-label="Next">
+                        <button
+                            class="icon-button"
+                            onclick="nextPeriod()"
+                            aria-label="Next"
+                        >
                             ›
                         </button>
+
+                        <h2>
+                            ${getCalendarTitle()}
+                        </h2>
 
                     </div>
 
@@ -235,25 +290,29 @@ function render() {
 
                         <button
                             class="${currentView === "month" ? "active" : ""}"
-                            onclick="setView('month')">
+                            onclick="setView('month')"
+                        >
                             Month
                         </button>
 
                         <button
                             class="${currentView === "week" ? "active" : ""}"
-                            onclick="setView('week')">
+                            onclick="setView('week')"
+                        >
                             Week
                         </button>
 
                         <button
                             class="${currentView === "day" ? "active" : ""}"
-                            onclick="setView('day')">
+                            onclick="setView('day')"
+                        >
                             Day
                         </button>
 
                         <button
                             class="${currentView === "agenda" ? "active" : ""}"
-                            onclick="setView('agenda')">
+                            onclick="setView('agenda')"
+                        >
                             Agenda
                         </button>
 
@@ -262,172 +321,211 @@ function render() {
                 </section>
 
 
-                <section id="calendarContainer"
-                    class="calendar-container">
+                <section class="calendar-container">
+
+                    ${
+                        currentView === "month"
+                            ? renderMonthView()
+                            : currentView === "week"
+                                ? renderWeekView()
+                                : currentView === "day"
+                                    ? renderDayView()
+                                    : renderAgendaView()
+                    }
+
                 </section>
 
             </main>
 
         </div>
-
-        <div id="modalContainer"></div>
     `;
-
-    renderCalendar();
 }
 
 
 /* =========================================================
-   CALENDAR VIEWS
+   CALENDAR TITLES
    ========================================================= */
 
-function renderCalendar() {
-    const container = document.getElementById("calendarContainer");
-
-    if (!container) return;
+function getCalendarTitle() {
 
     if (currentView === "month") {
-        renderMonth(container);
-        return;
-    }
 
-    if (currentView === "week") {
-        renderWeek(container);
-        return;
-    }
-
-    if (currentView === "day") {
-        renderDay(container);
-        return;
-    }
-
-    if (currentView === "agenda") {
-        renderAgenda(container);
-    }
-}
-
-
-/* =========================================================
-   MONTH
-   ========================================================= */
-
-function renderMonth(container) {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-
-    document.getElementById("calendarTitle").textContent =
-        currentDate.toLocaleDateString("en-GB", {
+        return currentDate.toLocaleDateString("en-GB", {
             month: "long",
             year: "numeric"
         });
 
+    }
+
+    if (currentView === "week") {
+
+        const start = startOfWeek(currentDate);
+
+        const end = new Date(start);
+        end.setDate(end.getDate() + 6);
+
+        const startText = start.toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short"
+        });
+
+        const endText = end.toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric"
+        });
+
+        return `${startText} - ${endText}`;
+    }
+
+    if (currentView === "day") {
+
+        return currentDate.toLocaleDateString("en-GB", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+            year: "numeric"
+        });
+
+    }
+
+    return "Agenda";
+}
+
+
+/* =========================================================
+   MONTH VIEW
+   ========================================================= */
+
+function renderMonthView() {
+
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+
     const firstDay = new Date(year, month, 1);
 
-    let startOffset = firstDay.getDay();
+    let startingDay = firstDay.getDay();
 
-    // Monday-start calendar
-    startOffset = startOffset === 0 ? 6 : startOffset - 1;
+    if (startingDay === 0) {
+        startingDay = 7;
+    }
 
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    startingDay -= 1;
 
-    const previousMonthDays =
-        new Date(year, month, 0).getDate();
+    const daysInMonth = new Date(
+        year,
+        month + 1,
+        0
+    ).getDate();
 
-    let html = `
-        <div class="month-calendar">
+    const previousMonthDays = new Date(
+        year,
+        month,
+        0
+    ).getDate();
 
-            <div class="weekday-row">
-                ${[
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday"
-                ].map(day => `<div>${day}</div>`).join("")}
-            </div>
+    let cells = "";
 
-            <div class="month-grid">
-    `;
-
-    const totalCells = Math.ceil(
-        (startOffset + daysInMonth) / 7
-    ) * 7;
-
-
-    for (let i = 0; i < totalCells; i++) {
+    for (let i = 0; i < 42; i++) {
 
         let dayNumber;
-        let date;
-        let outsideMonth = false;
+        let cellDate;
+        let isCurrentMonth = true;
 
-        if (i < startOffset) {
+        if (i < startingDay) {
 
             dayNumber =
-                previousMonthDays - startOffset + i + 1;
+                previousMonthDays -
+                startingDay +
+                i +
+                1;
 
-            date = new Date(
+            cellDate = new Date(
                 year,
                 month - 1,
                 dayNumber
             );
 
-            outsideMonth = true;
+            isCurrentMonth = false;
 
-        } else if (i >= startOffset + daysInMonth) {
+        } else if (
+            i >= startingDay + daysInMonth
+        ) {
 
             dayNumber =
-                i - (startOffset + daysInMonth) + 1;
+                i -
+                startingDay -
+                daysInMonth +
+                1;
 
-            date = new Date(
+            cellDate = new Date(
                 year,
                 month + 1,
                 dayNumber
             );
 
-            outsideMonth = true;
+            isCurrentMonth = false;
 
         } else {
 
-            dayNumber = i - startOffset + 1;
+            dayNumber =
+                i -
+                startingDay +
+                1;
 
-            date = new Date(
+            cellDate = new Date(
                 year,
                 month,
                 dayNumber
             );
         }
 
+        const dateString =
+            toDateInputValue(cellDate);
 
-        const dateString = formatDate(date);
+        const dayEvents =
+            events.filter(event => {
+                return event.start_time?.startsWith(
+                    dateString
+                );
+            });
 
-        const dayEvents = events.filter(event =>
-            event.event_date === dateString
-        );
-
-        const todayClass =
-            isToday(date) ? " today" : "";
-
-        const outsideClass =
-            outsideMonth ? " outside-month" : "";
-
-
-        html += `
+        cells += `
             <div
-                class="calendar-day${todayClass}${outsideClass}"
+                class="
+                    month-cell
+                    ${isCurrentMonth ? "" : "outside-month"}
+                    ${isToday(cellDate) ? "today" : ""}
+                "
                 onclick="handleDateClick('${dateString}')"
             >
 
-                <div class="day-number">
-                    ${dayNumber}
+                <div class="month-cell-header">
+
+                    <span class="month-day-number">
+                        ${dayNumber}
+                    </span>
+
                 </div>
 
-                <div class="day-events">
+                <div class="month-events">
 
-                    ${dayEvents.map(event =>
-                        renderCalendarEvent(event)
-                    ).join("")}
+                    ${
+                        dayEvents
+                            .slice(0, 4)
+                            .map(renderCalendarEvent)
+                            .join("")
+                    }
+
+                    ${
+                        dayEvents.length > 4
+                            ? `
+                                <div class="more-events">
+                                    +${dayEvents.length - 4} more
+                                </div>
+                              `
+                            : ""
+                    }
 
                 </div>
 
@@ -435,36 +533,50 @@ function renderMonth(container) {
         `;
     }
 
+    return `
+        <div class="month-calendar">
 
-    html += `
+            <div class="weekday-row">
+
+                <div>Mon</div>
+                <div>Tue</div>
+                <div>Wed</div>
+                <div>Thu</div>
+                <div>Fri</div>
+                <div>Sat</div>
+                <div>Sun</div>
+
             </div>
+
+            <div class="month-grid">
+                ${cells}
+            </div>
+
         </div>
     `;
-
-    container.innerHTML = html;
 }
 
 
 /* =========================================================
-   WEEK
+   WEEK VIEW
    ========================================================= */
 
-function renderWeek(container) {
+function renderWeekView() {
 
-    const start = startOfWeek(currentDate);
+    const weekStart = startOfWeek(currentDate);
 
     const days = [];
 
     for (let i = 0; i < 7; i++) {
-        const date = new Date(start);
-        date.setDate(start.getDate() + i);
-        days.push(date);
+
+        const day = new Date(weekStart);
+
+        day.setDate(
+            weekStart.getDate() + i
+        );
+
+        days.push(day);
     }
-
-
-    document.getElementById("calendarTitle").textContent =
-        `${formatShortDate(days[0])} - ${formatShortDate(days[6])}`;
-
 
     let html = `
         <div class="week-calendar">
@@ -472,29 +584,38 @@ function renderWeek(container) {
             <div class="week-header">
 
                 <div class="time-column-header"></div>
+    `;
 
-                ${days.map(date => `
-                    <div class="
-                        week-day-header
-                        ${isToday(date) ? "today" : ""}
-                    ">
-                        <span>
-                            ${date.toLocaleDateString("en-GB", {
-                                weekday: "short"
-                            })}
-                        </span>
+    days.forEach(day => {
 
-                        <strong>
-                            ${date.getDate()}
-                        </strong>
-                    </div>
-                `).join("")}
+        html += `
+            <div
+                class="
+                    week-day-header
+                    ${isToday(day) ? "today" : ""}
+                "
+            >
 
+                <span class="week-day-name">
+                    ${day.toLocaleDateString("en-GB", {
+                        weekday: "short"
+                    })}
+                </span>
+
+                <span class="week-day-number">
+                    ${day.getDate()}
+                </span>
+
+            </div>
+        `;
+
+    });
+
+    html += `
             </div>
 
             <div class="week-body">
     `;
-
 
     for (let hour = 0; hour < 24; hour++) {
 
@@ -502,247 +623,165 @@ function renderWeek(container) {
             <div class="week-row">
 
                 <div class="time-label">
-                    ${String(hour).padStart(2, "0")}:00
+                    ${formatHour(hour)}
                 </div>
         `;
 
+        days.forEach(day => {
 
-        days.forEach(date => {
+            const dateString =
+                toDateInputValue(day);
 
-            const dateString = formatDate(date);
+            const hourEvents =
+                events.filter(event => {
 
-            const hourEvents = events.filter(event => {
-                if (event.event_date !== dateString) return false;
+                    if (
+                        !event.start_time ||
+                        !event.start_time.startsWith(
+                            dateString
+                        )
+                    ) {
+                        return false;
+                    }
 
-                const startHour =
-                    parseInt(event.start_time.split(":")[0]);
+                    const start =
+                        new Date(event.start_time);
 
-                return startHour === hour;
-            });
-
+                    return start.getHours() === hour;
+                });
 
             html += `
                 <div
-                    class="week-cell"
-                    onclick="handleDateClick('${dateString}', ${hour})"
+                    class="week-hour-cell"
+                    onclick="handleDateClick(
+                        '${dateString}',
+                        ${hour}
+                    )"
                 >
 
-                    ${hourEvents.map(event =>
-                        renderCalendarEvent(event)
-                    ).join("")}
+                    ${
+                        hourEvents
+                            .map(renderCalendarEvent)
+                            .join("")
+                    }
 
                 </div>
             `;
+
         });
 
-
-        html += `</div>`;
+        html += `
+            </div>
+        `;
     }
-
 
     html += `
             </div>
+
         </div>
     `;
 
-
-    container.innerHTML = html;
+    return html;
 }
 
 
 /* =========================================================
-   DAY
+   DAY VIEW
    ========================================================= */
 
-function renderDay(container) {
+function renderDayView() {
 
-    document.getElementById("calendarTitle").textContent =
-        currentDate.toLocaleDateString("en-GB", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-            year: "numeric"
-        });
-
-
-    const dateString = formatDate(currentDate);
+    const dateString =
+        toDateInputValue(currentDate);
 
     let html = `
         <div class="day-calendar">
 
             <div class="day-header">
-                ${currentDate.toLocaleDateString("en-GB", {
-                    weekday: "long"
-                })}
-                <strong>
-                    ${currentDate.getDate()}
-                </strong>
+
+                <div class="day-time-header">
+                    Time
+                </div>
+
+                <div
+                    class="
+                        day-date-header
+                        ${isToday(currentDate) ? "today" : ""}
+                    "
+                >
+
+                    ${currentDate.toLocaleDateString("en-GB", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long"
+                    })}
+
+                </div>
+
             </div>
 
             <div class="day-body">
     `;
 
-
     for (let hour = 0; hour < 24; hour++) {
 
-        const hourEvents = events.filter(event => {
+        const hourEvents =
+            events.filter(event => {
 
-            if (event.event_date !== dateString) {
-                return false;
-            }
+                if (
+                    !event.start_time ||
+                    !event.start_time.startsWith(
+                        dateString
+                    )
+                ) {
+                    return false;
+                }
 
-            return parseInt(
-                event.start_time.split(":")[0]
-            ) === hour;
-        });
+                const start =
+                    new Date(event.start_time);
 
+                return start.getHours() === hour;
+            });
 
         html += `
             <div class="day-row">
 
                 <div class="time-label">
-                    ${String(hour).padStart(2, "0")}:00
+                    ${formatHour(hour)}
                 </div>
 
                 <div
-                    class="day-cell"
-                    onclick="handleDateClick('${dateString}', ${hour})"
+                    class="day-hour-cell"
+                    onclick="handleDateClick(
+                        '${dateString}',
+                        ${hour}
+                    )"
                 >
 
-                    ${hourEvents.map(event =>
-                        renderCalendarEvent(event)
-                    ).join("")}
+                    ${
+                        hourEvents
+                            .map(renderCalendarEvent)
+                            .join("")
+                    }
 
                 </div>
 
             </div>
         `;
     }
-
 
     html += `
             </div>
+
         </div>
     `;
 
-
-    container.innerHTML = html;
+    return html;
 }
 
 
 /* =========================================================
-   AGENDA
-   ========================================================= */
-
-function renderAgenda(container) {
-
-    document.getElementById("calendarTitle").textContent =
-        "Upcoming Events";
-
-
-    const sortedEvents = [...events].sort((a, b) => {
-
-        const first =
-            `${a.event_date} ${a.start_time}`;
-
-        const second =
-            `${b.event_date} ${b.start_time}`;
-
-        return first.localeCompare(second);
-    });
-
-
-    if (!sortedEvents.length) {
-
-        container.innerHTML = `
-            <div class="empty-state">
-
-                <div class="empty-icon">📅</div>
-
-                <h3>No events scheduled</h3>
-
-                <p>
-                    There aren't any events in the schedule yet.
-                </p>
-
-            </div>
-        `;
-
-        return;
-    }
-
-
-    const grouped = {};
-
-
-    sortedEvents.forEach(event => {
-
-        if (!grouped[event.event_date]) {
-            grouped[event.event_date] = [];
-        }
-
-        grouped[event.event_date].push(event);
-    });
-
-
-    let html = `<div class="agenda-list">`;
-
-
-    Object.entries(grouped).forEach(([date, dateEvents]) => {
-
-        const parsedDate =
-            new Date(`${date}T00:00:00`);
-
-
-        html += `
-            <section class="agenda-day">
-
-                <div class="agenda-date">
-
-                    <strong>
-                        ${parsedDate.toLocaleDateString(
-                            "en-GB",
-                            { weekday: "long" }
-                        )}
-                    </strong>
-
-                    <span>
-                        ${parsedDate.toLocaleDateString(
-                            "en-GB",
-                            {
-                                day: "numeric",
-                                month: "long",
-                                year: "numeric"
-                            }
-                        )}
-                    </span>
-
-                </div>
-        `;
-
-
-        dateEvents.forEach(event => {
-
-            html += renderAgendaEvent(event);
-
-        });
-
-
-        html += `
-            </section>
-        `;
-    });
-
-
-    html += `</div>`;
-
-
-    container.innerHTML = html;
-}
-
-
-/* =========================================================
-   EVENT DISPLAY
+   CALENDAR EVENT
    ========================================================= */
 
 function renderCalendarEvent(event) {
@@ -758,7 +797,6 @@ function renderCalendarEvent(event) {
 
     const required =
         event.staff_required || 0;
-
 
     return `
         <div
@@ -794,341 +832,490 @@ function renderCalendarEvent(event) {
 }
 
 
-function renderAgendaEvent(event) {
+/* =========================================================
+   AGENDA VIEW
+   ========================================================= */
 
-    const colour =
-        event.event_types?.colour || "#3b82f6";
+function renderAgendaView() {
 
-    const allocated =
-        event.event_staff?.length || 0;
+    const sortedEvents =
+        [...events].sort(
+            (a, b) =>
+                new Date(a.start_time) -
+                new Date(b.start_time)
+        );
 
-    const required =
-        event.staff_required || 0;
+    if (!sortedEvents.length) {
 
-
-    return `
-        <article
-            class="agenda-event"
-            style="--event-colour:${colour}"
-            onclick="openEvent('${event.id}')"
-        >
-
-            <div class="agenda-event-time">
-
-                <strong>
-                    ${formatTime(event.start_time)}
-                </strong>
-
-                <span>
-                    ${formatTime(event.end_time)}
-                </span>
-
+        return `
+            <div class="agenda-empty">
+                <h3>No events scheduled</h3>
+                <p>
+                    There are currently no events
+                    in the schedule.
+                </p>
             </div>
+        `;
+    }
 
+    let html = `
+        <div class="agenda-view">
+    `;
 
-            <div class="agenda-event-main">
+    let lastDate = null;
 
-                <div class="agenda-event-title">
-                    ${escapeHtml(event.title)}
+    sortedEvents.forEach(event => {
+
+        const eventDate =
+            event.start_time?.slice(0, 10);
+
+        if (eventDate !== lastDate) {
+
+            lastDate = eventDate;
+
+            html += `
+                <div class="agenda-date">
+                    ${formatDisplayDate(eventDate)}
+                </div>
+            `;
+        }
+
+        const type =
+            event.event_types?.name || "Event";
+
+        const colour =
+            event.event_types?.colour || "#3b82f6";
+
+        const allocated =
+            event.event_staff?.length || 0;
+
+        const required =
+            event.staff_required || 0;
+
+        html += `
+            <div
+                class="agenda-event"
+                onclick="openEvent('${event.id}')"
+                style="--event-colour:${colour}"
+            >
+
+                <div class="agenda-event-time">
+                    ${formatTime(event.start_time)}
+                    -
+                    ${formatTime(event.end_time)}
                 </div>
 
-                <div class="agenda-event-meta">
+                <div class="agenda-event-main">
 
-                    ${
-                        event.event_types?.name
-                            ? `<span>
-                                ${escapeHtml(
-                                    event.event_types.name
-                                )}
-                               </span>`
-                            : ""
-                    }
+                    <strong>
+                        ${escapeHtml(event.title)}
+                    </strong>
 
+                    <span>
+                        ${escapeHtml(type)}
+                    </span>
+
+                </div>
+
+                <div class="agenda-event-location">
                     ${
                         event.location
-                            ? `<span>
-                                📍 ${escapeHtml(event.location)}
-                               </span>`
+                            ? escapeHtml(event.location)
                             : ""
                     }
-
-                    ${
-                        required > 0
-                            ? `<span>
-                                👥 ${allocated}/${required} staff
-                               </span>`
-                            : ""
-                    }
-
                 </div>
 
-            </div>
+                ${
+                    required > 0
+                        ? `
+                            <div class="agenda-event-staff">
+                                ${allocated}/${required}
+                            </div>
+                          `
+                        : ""
+                }
 
-        </article>
+            </div>
+        `;
+    });
+
+    html += `
+        </div>
     `;
+
+    return html;
+}
+/* =========================================================
+   EVENT CLICK / CREATION
+   ========================================================= */
+
+function handleDateClick(date, hour = null) {
+
+    // Clicking a date from the month view opens that date
+    // in the detailed hour-by-hour Day view.
+    // Clicking an hour from the day/week view can create
+    // an event when Management is signed in.
+
+    if (hour === null) {
+
+        currentDate = new Date(`${date}T12:00:00`);
+
+        currentView = "day";
+
+        render();
+
+        return;
+    }
+
+    if (!canManage()) return;
+
+    currentDate = new Date(`${date}T12:00:00`);
+
+    openCreateEventModal(date, hour);
 }
 
 
 /* =========================================================
-   EVENT MODALS
+   CREATE EVENT MODAL
    ========================================================= */
 
-function openCreateEventModal(date = null, hour = null) {
+function openCreateEventModal(
+    date = null,
+    hour = null
+) {
 
     if (!canManage()) {
-        showLoginMessage();
         return;
     }
 
+    const selectedDate =
+        date ||
+        toDateInputValue(currentDate);
 
-    const defaultDate =
-        date || formatDate(currentDate);
-
-    const defaultStart =
+    const startHour =
         hour !== null
-            ? `${String(hour).padStart(2, "0")}:00`
-            : "19:00";
+            ? hour
+            : 19;
 
-
-    const defaultEnd =
+    const endHour =
         hour !== null
-            ? `${String(Math.min(hour + 1, 23))
-                .padStart(2, "0")}:00`
-            : "20:00";
+            ? Math.min(hour + 1, 23)
+            : 20;
 
+    const startTime =
+        `${String(startHour).padStart(2, "0")}:00`;
 
-    selectedEvent = null;
+    const endTime =
+        `${String(endHour).padStart(2, "0")}:00`;
 
+    const typeOptions =
+        eventTypes
+            .map(type => `
+                <option value="${type.id}">
+                    ${escapeHtml(type.name)}
+                </option>
+            `)
+            .join("");
 
     showModal(`
-        <div class="modal">
+        <div class="modal-header">
 
-            <div class="modal-header">
+            <div>
+                <h2>Create Event</h2>
+                <p>
+                    Add a new event to the KNG schedule.
+                </p>
+            </div>
 
-                <div>
-                    <span class="modal-eyebrow">
-                        New Event
-                    </span>
+            <button
+                class="modal-close"
+                onclick="closeModal()"
+            >
+                ×
+            </button>
 
-                    <h2>Create Event</h2>
-                </div>
+        </div>
 
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
+
+        <form
+            class="modal-form"
+            onsubmit="createEvent(event)"
+        >
+
+            <div class="form-group">
+
+                <label for="event-title">
+                    Event Title
+                </label>
+
+                <input
+                    id="event-title"
+                    name="title"
+                    type="text"
+                    required
+                    maxlength="150"
+                    placeholder="Enter event title"
+                >
 
             </div>
 
 
-            <form onsubmit="createEvent(event)">
+            <div class="form-row">
 
-                <div class="form-grid">
+                <div class="form-group">
 
-                    <div class="form-field full">
-                        <label>Event title</label>
+                    <label for="event-type">
+                        Event Type
+                    </label>
 
-                        <input
-                            id="eventTitle"
-                            required
-                            maxlength="120"
-                            placeholder="e.g. Legion BR"
-                        >
-                    </div>
+                    <select
+                        id="event-type"
+                        name="event_type_id"
+                        required
+                    >
 
+                        <option value="">
+                            Select event type
+                        </option>
 
-                    <div class="form-field">
-                        <label>Event type</label>
+                        ${typeOptions}
 
-                        <select id="eventType" required>
-
-                            ${eventTypes.map(type => `
-                                <option value="${type.id}">
-                                    ${escapeHtml(type.name)}
-                                </option>
-                            `).join("")}
-
-                        </select>
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Date</label>
-
-                        <input
-                            id="eventDate"
-                            type="date"
-                            value="${defaultDate}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Start time</label>
-
-                        <input
-                            id="eventStart"
-                            type="time"
-                            value="${defaultStart}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>End time</label>
-
-                        <input
-                            id="eventEnd"
-                            type="time"
-                            value="${defaultEnd}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Location</label>
-
-                        <input
-                            id="eventLocation"
-                            maxlength="150"
-                            placeholder="Optional"
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Staff required</label>
-
-                        <input
-                            id="eventStaffRequired"
-                            type="number"
-                            min="0"
-                            value="0"
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Description</label>
-
-                        <textarea
-                            id="eventDescription"
-                            rows="5"
-                            maxlength="2000"
-                            placeholder="Event details..."
-                        ></textarea>
-                    </div>
+                    </select>
 
                 </div>
 
 
-                <div id="eventFormError"
-                    class="form-error">
-                </div>
+                <div class="form-group">
 
+                    <label for="event-date">
+                        Date
+                    </label>
 
-                <div class="modal-footer">
-
-                    <button
-                        type="button"
-                        class="secondary-button"
-                        onclick="closeModal()">
-                        Cancel
-                    </button>
-
-                    <button
-                        type="submit"
-                        class="primary-button">
-                        Create Event
-                    </button>
+                    <input
+                        id="event-date"
+                        name="date"
+                        type="date"
+                        required
+                        value="${escapeAttribute(selectedDate)}"
+                    >
 
                 </div>
 
-            </form>
+            </div>
 
-        </div>
+
+            <div class="form-row">
+
+                <div class="form-group">
+
+                    <label for="event-start">
+                        Start Time
+                    </label>
+
+                    <input
+                        id="event-start"
+                        name="start"
+                        type="time"
+                        required
+                        value="${startTime}"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="event-end">
+                        End Time
+                    </label>
+
+                    <input
+                        id="event-end"
+                        name="end"
+                        type="time"
+                        required
+                        value="${endTime}"
+                    >
+
+                </div>
+
+            </div>
+
+
+            <div class="form-row">
+
+                <div class="form-group">
+
+                    <label for="event-location">
+                        Location
+                    </label>
+
+                    <input
+                        id="event-location"
+                        name="location"
+                        type="text"
+                        maxlength="200"
+                        placeholder="Event location"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label for="event-staff-required">
+                        Staff Required
+                    </label>
+
+                    <input
+                        id="event-staff-required"
+                        name="staff_required"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value="0"
+                    >
+
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label for="event-description">
+                    Description
+                </label>
+
+                <textarea
+                    id="event-description"
+                    name="description"
+                    rows="5"
+                    maxlength="2000"
+                    placeholder="Add any useful event information..."
+                ></textarea>
+
+            </div>
+
+
+            <div class="modal-actions">
+
+                <button
+                    type="button"
+                    class="secondary-button"
+                    onclick="closeModal()"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="primary-button"
+                >
+                    Create Event
+                </button>
+
+            </div>
+
+        </form>
     `);
 }
 
 
-async function createEvent(event) {
+/* =========================================================
+   CREATE EVENT
+   ========================================================= */
 
-    event.preventDefault();
+async function createEvent(formEvent) {
 
+    formEvent.preventDefault();
 
-    const errorBox =
-        document.getElementById("eventFormError");
-
-    errorBox.textContent = "";
-
-
-    const title =
-        document.getElementById("eventTitle").value.trim();
-
-    const eventTypeId =
-        document.getElementById("eventType").value;
-
-    const eventDate =
-        document.getElementById("eventDate").value;
-
-    const startTime =
-        document.getElementById("eventStart").value;
-
-    const endTime =
-        document.getElementById("eventEnd").value;
-
-    const location =
-        document.getElementById("eventLocation").value.trim();
-
-    const staffRequired =
-        parseInt(
-            document.getElementById(
-                "eventStaffRequired"
-            ).value
-        ) || 0;
-
-    const description =
-        document.getElementById(
-            "eventDescription"
-        ).value.trim();
-
-
-    if (endTime <= startTime) {
-
-        errorBox.textContent =
-            "End time must be later than start time.";
-
+    if (!canManage()) {
         return;
     }
 
+    const form =
+        formEvent.target;
 
-    const { error } = await supabaseClient
-        .from("events")
-        .insert({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            created_by: currentUser?.id || null,
-            updated_by: currentUser?.id || null
-        });
+    const title =
+        form.title.value.trim();
 
+    const eventTypeId =
+        form.event_type_id.value;
+
+    const date =
+        form.date.value;
+
+    const start =
+        form.start.value;
+
+    const end =
+        form.end.value;
+
+    const location =
+        form.location.value.trim();
+
+    const description =
+        form.description.value.trim();
+
+    const staffRequired =
+        Number(form.staff_required.value || 0);
+
+    if (!title) {
+        alert("Please enter an event title.");
+        return;
+    }
+
+    if (!eventTypeId) {
+        alert("Please select an event type.");
+        return;
+    }
+
+    if (!date || !start || !end) {
+        alert("Please provide a date and time.");
+        return;
+    }
+
+    if (end <= start) {
+        alert("The end time must be after the start time.");
+        return;
+    }
+
+    const startDateTime =
+        `${date}T${start}:00`;
+
+    const endDateTime =
+        `${date}T${end}:00`;
+
+    const { data, error } =
+        await supabaseClient
+            .from("events")
+            .insert({
+                title,
+                event_type_id: eventTypeId,
+                start_time: startDateTime,
+                end_time: endDateTime,
+                location:
+                    location || null,
+                description:
+                    description || null,
+                staff_required:
+                    staffRequired
+            })
+            .select()
+            .single();
 
     if (error) {
 
-        errorBox.textContent = error.message;
+        console.error(error);
+
+        alert(
+            error.message ||
+            "Unable to create event."
+        );
 
         return;
     }
-
 
     closeModal();
 
@@ -1139,248 +1326,225 @@ async function createEvent(event) {
 
 
 /* =========================================================
-   EVENT DETAILS
+   OPEN EVENT
    ========================================================= */
 
 function openEvent(eventId) {
 
     const event =
-        events.find(item => item.id === eventId);
+        events.find(
+            item => item.id === eventId
+        );
 
-    if (!event) return;
+    if (!event) {
+        return;
+    }
 
     selectedEvent = event;
 
+    const type =
+        event.event_types?.name ||
+        "Event";
 
     const colour =
-        event.event_types?.colour || "#3b82f6";
+        event.event_types?.colour ||
+        "#3b82f6";
 
-
-    const allocations =
+    const allocatedStaff =
         event.event_staff || [];
 
+    const allocated =
+        allocatedStaff.length;
+
+    const required =
+        event.staff_required || 0;
+
+    const staffHtml =
+        allocatedStaff.length
+            ? allocatedStaff
+                .map(item => `
+                    <div class="allocated-staff">
+                        ${escapeHtml(
+                            item.staff?.name ||
+                            "Unknown Staff"
+                        )}
+                    </div>
+                `)
+                .join("")
+            : `
+                <div class="no-staff">
+                    No staff allocated
+                </div>
+              `;
 
     showModal(`
-        <div class="modal event-detail-modal">
+        <div class="modal-header">
 
-            <div
-                class="event-detail-accent"
-                style="background:${colour}">
-            </div>
+            <div>
 
+                <span
+                    class="event-type-badge"
+                    style="--event-colour:${colour}"
+                >
+                    ${escapeHtml(type)}
+                </span>
 
-            <div class="modal-header">
-
-                <div>
-
-                    <span class="modal-eyebrow">
-                        ${escapeHtml(
-                            event.event_types?.name || "Event"
-                        )}
-                    </span>
-
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-
-                </div>
-
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
+                <h2>
+                    ${escapeHtml(event.title)}
+                </h2>
 
             </div>
 
+            <button
+                class="modal-close"
+                onclick="closeModal()"
+            >
+                ×
+            </button>
 
-            <div class="event-detail-content">
-
-                <div class="event-detail-row">
-                    <span>📅</span>
-
-                    <div>
-                        <strong>Date</strong>
-
-                        <p>
-                            ${formatDisplayDate(
-                                event.event_date
-                            )}
-                        </p>
-                    </div>
-                </div>
+        </div>
 
 
-                <div class="event-detail-row">
-                    <span>⏰</span>
+        <div class="event-details">
 
-                    <div>
-                        <strong>Time</strong>
+            <div class="event-detail-row">
 
-                        <p>
-                            ${formatTime(event.start_time)}
-                            -
-                            ${formatTime(event.end_time)}
-                        </p>
-                    </div>
-                </div>
+                <span class="detail-label">
+                    Date
+                </span>
 
+                <span class="detail-value">
+                    ${formatDisplayDate(
+                        event.start_time?.slice(0, 10)
+                    )}
+                </span>
 
-                ${
-                    event.location
-                        ? `
-                            <div class="event-detail-row">
-                                <span>📍</span>
-
-                                <div>
-                                    <strong>Location</strong>
-                                    <p>
-                                        ${escapeHtml(
-                                            event.location
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                          `
-                        : ""
-                }
+            </div>
 
 
-                ${
-                    event.description
-                        ? `
-                            <div class="event-detail-description">
-                                <strong>Description</strong>
+            <div class="event-detail-row">
 
-                                <p>
-                                    ${escapeHtml(
-                                        event.description
-                                    ).replace(
-                                        /\n/g,
-                                        "<br>"
-                                    )}
-                                </p>
-                            </div>
-                          `
-                        : ""
-                }
+                <span class="detail-label">
+                    Time
+                </span>
 
-
-                ${
-                    event.staff_required > 0
-                        ? `
-                            <div class="staff-section">
-
-                                <div class="staff-section-header">
-
-                                    <div>
-                                        <strong>
-                                            Staff Allocation
-                                        </strong>
-
-                                        <span>
-                                            ${allocations.length}
-                                            /
-                                            ${event.staff_required}
-                                        </span>
-                                    </div>
-
-                                    ${
-                                        canManage()
-                                            ? `
-                                                <button
-                                                    class="secondary-button"
-                                                    onclick="openStaffAllocation('${event.id}')">
-                                                    Manage Staff
-                                                </button>
-                                              `
-                                            : ""
-                                    }
-
-                                </div>
-
-
-                                ${
-                                    allocations.length
-                                        ? `
-                                            <div class="allocated-staff">
-                                                ${allocations.map(
-                                                    allocation => `
-                                                        <div class="staff-chip">
-                                                            <span>
-                                                                ${escapeHtml(
-                                                                    allocation.staff?.name
-                                                                    || "Unknown"
-                                                                )}
-                                                            </span>
-
-                                                            ${
-                                                                allocation.role
-                                                                    ? `<small>
-                                                                        ${escapeHtml(
-                                                                            allocation.role
-                                                                        )}
-                                                                       </small>`
-                                                                    : ""
-                                                            }
-                                                        </div>
-                                                    `
-                                                ).join("")}
-                                            </div>
-                                          `
-                                        : `
-                                            <div class="no-staff">
-                                                No staff allocated yet.
-                                            </div>
-                                          `
-                                }
-
-                            </div>
-                          `
-                        : ""
-                }
+                <span class="detail-value">
+                    ${formatTime(event.start_time)}
+                    -
+                    ${formatTime(event.end_time)}
+                </span>
 
             </div>
 
 
             ${
-                canManage()
+                event.location
                     ? `
-                        <div class="modal-footer">
+                        <div class="event-detail-row">
 
-                            <button
-                                class="danger-button"
-                                onclick="deleteEvent('${event.id}')">
-                                Delete Event
-                            </button>
+                            <span class="detail-label">
+                                Location
+                            </span>
 
-                            <div class="modal-footer-right">
-
-                                <button
-                                    class="secondary-button"
-                                    onclick="openEditEvent('${event.id}')">
-                                    Edit Event
-                                </button>
-
-                                <button
-                                    class="primary-button"
-                                    onclick="closeModal()">
-                                    Done
-                                </button>
-
-                            </div>
+                            <span class="detail-value">
+                                ${escapeHtml(
+                                    event.location
+                                )}
+                            </span>
 
                         </div>
                       `
-                    : `
-                        <div class="modal-footer">
-                            <button
-                                class="primary-button"
-                                onclick="closeModal()">
-                                Close
-                            </button>
+                    : ""
+            }
+
+
+            ${
+                event.description
+                    ? `
+                        <div class="event-detail-description">
+
+                            <span class="detail-label">
+                                Description
+                            </span>
+
+                            <p>
+                                ${escapeHtml(
+                                    event.description
+                                )}
+                            </p>
+
                         </div>
+                      `
+                    : ""
+            }
+
+
+            <div class="event-staff-section">
+
+                <div class="event-staff-heading">
+
+                    <h3>
+                        Staff
+                    </h3>
+
+                    ${
+                        required > 0
+                            ? `
+                                <span>
+                                    ${allocated}/${required}
+                                </span>
+                              `
+                            : ""
+                    }
+
+                </div>
+
+                <div class="allocated-staff-list">
+                    ${staffHtml}
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <div class="modal-actions">
+
+            ${
+                canManage()
+                    ? `
+                        <button
+                            type="button"
+                            class="secondary-button"
+                            onclick="openStaffAllocation('${event.id}')"
+                        >
+                            Manage Staff
+                        </button>
+
+                        <button
+                            type="button"
+                            class="secondary-button danger-button"
+                            onclick="deleteEvent('${event.id}')"
+                        >
+                            Delete Event
+                        </button>
+
+                        <button
+                            type="button"
+                            class="primary-button"
+                            onclick="openEditEvent('${event.id}')"
+                        >
+                            Edit Event
+                        </button>
+                      `
+                    : `
+                        <button
+                            type="button"
+                            class="secondary-button"
+                            onclick="closeModal()"
+                        >
+                            Close
+                        </button>
                       `
             }
 
@@ -1395,250 +1559,374 @@ function openEvent(eventId) {
 
 function openEditEvent(eventId) {
 
+    if (!canManage()) {
+        return;
+    }
+
     const event =
-        events.find(item => item.id === eventId);
+        events.find(
+            item => item.id === eventId
+        );
 
-    if (!event || !canManage()) return;
+    if (!event) {
+        return;
+    }
 
+    const date =
+        event.start_time?.slice(0, 10);
+
+    const start =
+        event.start_time
+            ? new Date(event.start_time)
+            : null;
+
+    const end =
+        event.end_time
+            ? new Date(event.end_time)
+            : null;
+
+    const startTime =
+        start
+            ? `${String(
+                start.getHours()
+            ).padStart(2, "0")}:${String(
+                start.getMinutes()
+            ).padStart(2, "0")}`
+            : "19:00";
+
+    const endTime =
+        end
+            ? `${String(
+                end.getHours()
+            ).padStart(2, "0")}:${String(
+                end.getMinutes()
+            ).padStart(2, "0")}`
+            : "20:00";
+
+    const typeOptions =
+        eventTypes
+            .map(type => `
+                <option
+                    value="${type.id}"
+                    ${
+                        type.id === event.event_type_id
+                            ? "selected"
+                            : ""
+                    }
+                >
+                    ${escapeHtml(type.name)}
+                </option>
+            `)
+            .join("");
 
     showModal(`
-        <div class="modal">
+        <div class="modal-header">
 
-            <div class="modal-header">
+            <div>
 
-                <div>
-                    <span class="modal-eyebrow">
-                        Edit Event
-                    </span>
+                <h2>
+                    Edit Event
+                </h2>
 
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-                </div>
+                <p>
+                    Update the event details.
+                </p>
 
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
+            </div>
+
+            <button
+                class="modal-close"
+                onclick="closeModal()"
+            >
+                ×
+            </button>
+
+        </div>
+
+
+        <form
+            class="modal-form"
+            onsubmit="updateEvent(event, '${event.id}')"
+        >
+
+            <div class="form-group">
+
+                <label>
+                    Event Title
+                </label>
+
+                <input
+                    name="title"
+                    type="text"
+                    required
+                    maxlength="150"
+                    value="${escapeAttribute(
+                        event.title || ""
+                    )}"
+                >
 
             </div>
 
 
-            <form onsubmit="updateEvent(event, '${event.id}')">
+            <div class="form-row">
 
-                <div class="form-grid">
+                <div class="form-group">
 
-                    <div class="form-field full">
-                        <label>Event title</label>
+                    <label>
+                        Event Type
+                    </label>
 
-                        <input
-                            id="editEventTitle"
-                            required
-                            value="${escapeAttribute(event.title)}"
-                        >
-                    </div>
+                    <select
+                        name="event_type_id"
+                        required
+                    >
 
+                        ${typeOptions}
 
-                    <div class="form-field">
-                        <label>Event type</label>
-
-                        <select id="editEventType" required>
-
-                            ${eventTypes.map(type => `
-                                <option
-                                    value="${type.id}"
-                                    ${type.id === event.event_type_id
-                                        ? "selected"
-                                        : ""}
-                                >
-                                    ${escapeHtml(type.name)}
-                                </option>
-                            `).join("")}
-
-                        </select>
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Date</label>
-
-                        <input
-                            id="editEventDate"
-                            type="date"
-                            value="${event.event_date}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Start time</label>
-
-                        <input
-                            id="editEventStart"
-                            type="time"
-                            value="${event.start_time.slice(0,5)}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>End time</label>
-
-                        <input
-                            id="editEventEnd"
-                            type="time"
-                            value="${event.end_time.slice(0,5)}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Location</label>
-
-                        <input
-                            id="editEventLocation"
-                            value="${escapeAttribute(
-                                event.location || ""
-                            )}"
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Staff required</label>
-
-                        <input
-                            id="editEventStaffRequired"
-                            type="number"
-                            min="0"
-                            value="${event.staff_required || 0}"
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Description</label>
-
-                        <textarea
-                            id="editEventDescription"
-                            rows="5"
-                        >${escapeHtml(
-                            event.description || ""
-                        )}</textarea>
-                    </div>
+                    </select>
 
                 </div>
 
 
-                <div id="editEventFormError"
-                    class="form-error">
-                </div>
+                <div class="form-group">
 
+                    <label>
+                        Date
+                    </label>
 
-                <div class="modal-footer">
-
-                    <button
-                        type="button"
-                        class="secondary-button"
-                        onclick="openEvent('${event.id}')">
-                        Cancel
-                    </button>
-
-                    <button
-                        type="submit"
-                        class="primary-button">
-                        Save Changes
-                    </button>
+                    <input
+                        name="date"
+                        type="date"
+                        required
+                        value="${escapeAttribute(
+                            date || ""
+                        )}"
+                    >
 
                 </div>
 
-            </form>
+            </div>
 
-        </div>
+
+            <div class="form-row">
+
+                <div class="form-group">
+
+                    <label>
+                        Start Time
+                    </label>
+
+                    <input
+                        name="start"
+                        type="time"
+                        required
+                        value="${startTime}"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
+                        End Time
+                    </label>
+
+                    <input
+                        name="end"
+                        type="time"
+                        required
+                        value="${endTime}"
+                    >
+
+                </div>
+
+            </div>
+
+
+            <div class="form-row">
+
+                <div class="form-group">
+
+                    <label>
+                        Location
+                    </label>
+
+                    <input
+                        name="location"
+                        type="text"
+                        maxlength="200"
+                        value="${escapeAttribute(
+                            event.location || ""
+                        )}"
+                    >
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label>
+                        Staff Required
+                    </label>
+
+                    <input
+                        name="staff_required"
+                        type="number"
+                        min="0"
+                        max="100"
+                        value="${Number(
+                            event.staff_required || 0
+                        )}"
+                    >
+
+                </div>
+
+            </div>
+
+
+            <div class="form-group">
+
+                <label>
+                    Description
+                </label>
+
+                <textarea
+                    name="description"
+                    rows="5"
+                    maxlength="2000"
+                >${escapeHtml(
+                    event.description || ""
+                )}</textarea>
+
+            </div>
+
+
+            <div class="modal-actions">
+
+                <button
+                    type="button"
+                    class="secondary-button"
+                    onclick="openEvent('${event.id}')"
+                >
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="primary-button"
+                >
+                    Save Changes
+                </button>
+
+            </div>
+
+        </form>
     `);
 }
 
 
-async function updateEvent(formEvent, eventId) {
+/* =========================================================
+   UPDATE EVENT
+   ========================================================= */
+
+async function updateEvent(
+    formEvent,
+    eventId
+) {
 
     formEvent.preventDefault();
 
+    if (!canManage()) {
+        return;
+    }
 
-    const errorBox =
-        document.getElementById("editEventFormError");
-
-    errorBox.textContent = "";
-
+    const form =
+        formEvent.target;
 
     const title =
-        document.getElementById("editEventTitle")
-            .value.trim();
+        form.title.value.trim();
 
     const eventTypeId =
-        document.getElementById("editEventType").value;
+        form.event_type_id.value;
 
-    const eventDate =
-        document.getElementById("editEventDate").value;
+    const date =
+        form.date.value;
 
-    const startTime =
-        document.getElementById("editEventStart").value;
+    const start =
+        form.start.value;
 
-    const endTime =
-        document.getElementById("editEventEnd").value;
+    const end =
+        form.end.value;
 
     const location =
-        document.getElementById("editEventLocation")
-            .value.trim();
-
-    const staffRequired =
-        parseInt(
-            document.getElementById(
-                "editEventStaffRequired"
-            ).value
-        ) || 0;
+        form.location.value.trim();
 
     const description =
-        document.getElementById(
-            "editEventDescription"
-        ).value.trim();
+        form.description.value.trim();
 
+    const staffRequired =
+        Number(
+            form.staff_required.value || 0
+        );
 
-    if (endTime <= startTime) {
+    if (!title) {
+        alert("Please enter an event title.");
+        return;
+    }
 
-        errorBox.textContent =
-            "End time must be later than start time.";
+    if (!eventTypeId) {
+        alert("Please select an event type.");
+        return;
+    }
+
+    if (!date || !start || !end) {
+        alert("Please provide a date and time.");
+        return;
+    }
+
+    if (end <= start) {
+        alert(
+            "The end time must be after the start time."
+        );
 
         return;
     }
 
+    const startDateTime =
+        `${date}T${start}:00`;
 
-    const { error } = await supabaseClient
-        .from("events")
-        .update({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            updated_by: currentUser?.id || null
-        })
-        .eq("id", eventId);
+    const endDateTime =
+        `${date}T${end}:00`;
 
+    const { error } =
+        await supabaseClient
+            .from("events")
+            .update({
+                title,
+                event_type_id: eventTypeId,
+                start_time: startDateTime,
+                end_time: endDateTime,
+                location:
+                    location || null,
+                description:
+                    description || null,
+                staff_required:
+                    staffRequired
+            })
+            .eq("id", eventId);
 
     if (error) {
 
-        errorBox.textContent = error.message;
+        console.error(error);
+
+        alert(
+            error.message ||
+            "Unable to update event."
+        );
 
         return;
     }
-
 
     closeModal();
 
@@ -1654,23 +1942,27 @@ async function updateEvent(formEvent, eventId) {
 
 async function deleteEvent(eventId) {
 
-    if (!canManage()) return;
-
+    if (!canManage()) {
+        return;
+    }
 
     const event =
-        events.find(item => item.id === eventId);
+        events.find(
+            item => item.id === eventId
+        );
 
-    if (!event) return;
-
+    if (!event) {
+        return;
+    }
 
     const confirmed =
         confirm(
             `Delete "${event.title}"?\n\nThis cannot be undone.`
         );
 
-
-    if (!confirmed) return;
-
+    if (!confirmed) {
+        return;
+    }
 
     const { error } =
         await supabaseClient
@@ -1678,14 +1970,19 @@ async function deleteEvent(eventId) {
             .delete()
             .eq("id", eventId);
 
-
     if (error) {
 
-        alert(error.message);
+        console.error(error);
+
+        alert(
+            error.message ||
+            "Unable to delete event."
+        );
 
         return;
     }
 
+    selectedEvent = null;
 
     closeModal();
 
@@ -1701,232 +1998,217 @@ async function deleteEvent(eventId) {
 
 function openStaffAllocation(eventId) {
 
+    if (!canManage()) {
+        return;
+    }
+
     const event =
-        events.find(item => item.id === eventId);
-
-    if (!event || !canManage()) return;
-
-
-    const allocatedIds =
-        new Set(
-            (event.event_staff || [])
-                .map(item => item.staff_id)
+        events.find(
+            item => item.id === eventId
         );
 
+    if (!event) {
+        return;
+    }
 
-    showModal(`
-        <div class="modal">
+    const allocatedIds =
+        (event.event_staff || [])
+            .map(item => item.staff_id);
 
-            <div class="modal-header">
+    const required =
+        Number(event.staff_required || 0);
 
-                <div>
-                    <span class="modal-eyebrow">
-                        Staff Allocation
+    const staffHtml =
+        staff.map(member => {
+
+            const checked =
+                allocatedIds.includes(
+                    member.id
+                );
+
+            return `
+                <label class="staff-checkbox">
+
+                    <input
+                        type="checkbox"
+                        name="staff"
+                        value="${member.id}"
+                        ${checked ? "checked" : ""}
+                    >
+
+                    <span>
+                        ${escapeHtml(member.name)}
                     </span>
 
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-                </div>
+                </label>
+            `;
 
-                <button
-                    class="modal-close"
-                    onclick="openEvent('${event.id}')">
-                    ×
-                </button>
+        }).join("");
 
-            </div>
+    showModal(`
+        <div class="modal-header">
 
+            <div>
 
-            <div class="staff-allocation-summary">
+                <h2>
+                    Manage Staff
+                </h2>
 
-                <strong>
-                    ${allocatedIds.size}
-                    /
-                    ${event.staff_required}
-                    staff allocated
-                </strong>
-
-                <span>
-                    Select the staff members attending this event.
-                </span>
+                <p>
+                    ${escapeHtml(event.title)}
+                </p>
 
             </div>
 
+            <button
+                class="modal-close"
+                onclick="closeModal()"
+            >
+                ×
+            </button>
 
-            <div class="staff-list">
-
-                ${
-                    staff.length
-                        ? staff.map(member => `
-                            <label class="staff-option">
-
-                                <input
-                                    type="checkbox"
-                                    value="${member.id}"
-                                    ${allocatedIds.has(member.id)
-                                        ? "checked"
-                                        : ""}
-                                >
-
-                                <span class="staff-option-name">
-                                    ${escapeHtml(member.name)}
-                                </span>
-
-                                ${
-                                    member.discord_id
-                                        ? `<small>
-                                            ${escapeHtml(
-                                                member.discord_id
-                                            )}
-                                           </small>`
-                                        : ""
-                                }
-
-                            </label>
-                        `).join("")
-                        : `
-                            <div class="no-staff">
-                                No active staff members exist yet.
-                            </div>
-                        `
-                }
-
-            </div>
+        </div>
 
 
-            <div id="staffAllocationError"
-                class="form-error">
-            </div>
+        <div class="staff-allocation-info">
+
+            <strong>
+                Staff required:
+            </strong>
+
+            <span>
+                ${required > 0 ? required : "No limit"}
+            </span>
+
+        </div>
 
 
-            <div class="modal-footer">
+        <div
+            class="staff-allocation-list"
+            id="staff-allocation-list"
+        >
 
-                <button
-                    class="secondary-button"
-                    onclick="openEvent('${event.id}')">
-                    Cancel
-                </button>
+            ${staffHtml}
 
-                <button
-                    class="primary-button"
-                    onclick="saveStaffAllocation('${event.id}')">
-                    Save Allocation
-                </button>
+        </div>
 
-            </div>
+
+        <div class="modal-actions">
+
+            <button
+                type="button"
+                class="secondary-button"
+                onclick="openEvent('${event.id}')"
+            >
+                Cancel
+            </button>
+
+            <button
+                type="button"
+                class="primary-button"
+                onclick="saveStaffAllocation('${event.id}')"
+            >
+                Save Staff
+            </button>
 
         </div>
     `);
 }
 
 
+/* =========================================================
+   SAVE STAFF ALLOCATION
+   ========================================================= */
+
 async function saveStaffAllocation(eventId) {
 
-    if (!canManage()) return;
-
+    if (!canManage()) {
+        return;
+    }
 
     const event =
-        events.find(item => item.id === eventId);
-
-    if (!event) return;
-
-
-    const checked =
-        [...document.querySelectorAll(
-            '.staff-option input:checked'
-        )].map(input => input.value);
-
-
-    const errorBox =
-        document.getElementById(
-            "staffAllocationError"
+        events.find(
+            item => item.id === eventId
         );
 
+    if (!event) {
+        return;
+    }
+
+    const checkboxes =
+        document.querySelectorAll(
+            '#staff-allocation-list input[name="staff"]'
+        );
+
+    const selectedIds =
+        Array.from(checkboxes)
+            .filter(input => input.checked)
+            .map(input => input.value);
+
+    const required =
+        Number(event.staff_required || 0);
 
     if (
-        event.staff_required > 0 &&
-        checked.length > event.staff_required
+        required > 0 &&
+        selectedIds.length > required
     ) {
 
-        errorBox.textContent =
-            `You can only allocate ${event.staff_required} staff members.`;
+        alert(
+            `This event requires ${required} staff.`
+        );
 
         return;
     }
 
+    const { error: deleteError } =
+        await supabaseClient
+            .from("event_staff")
+            .delete()
+            .eq("event_id", eventId);
 
-    const existing =
-        event.event_staff || [];
+    if (deleteError) {
 
+        console.error(deleteError);
 
-    const existingIds =
-        existing.map(item => item.staff_id);
-
-
-    const toRemove =
-        existing.filter(item =>
-            !checked.includes(item.staff_id)
+        alert(
+            deleteError.message ||
+            "Unable to update staff allocation."
         );
 
-
-    const toAdd =
-        checked.filter(id =>
-            !existingIds.includes(id)
-        );
-
-
-    if (toRemove.length) {
-
-        const ids =
-            toRemove.map(item => item.id);
-
-
-        const { error } =
-            await supabaseClient
-                .from("event_staff")
-                .delete()
-                .in("id", ids);
-
-
-        if (error) {
-
-            errorBox.textContent = error.message;
-
-            return;
-        }
+        return;
     }
 
-
-    if (toAdd.length) {
+    if (selectedIds.length > 0) {
 
         const rows =
-            toAdd.map(staffId => ({
+            selectedIds.map(staffId => ({
                 event_id: eventId,
-                staff_id: staffId,
-                role: "Staff",
-                allocated_by: currentUser?.id || null
+                staff_id: staffId
             }));
 
-
-        const { error } =
+        const { error: insertError } =
             await supabaseClient
                 .from("event_staff")
                 .insert(rows);
 
+        if (insertError) {
 
-        if (error) {
+            console.error(insertError);
 
-            errorBox.textContent = error.message;
+            alert(
+                insertError.message ||
+                "Unable to allocate staff."
+            );
 
             return;
         }
     }
 
+    closeModal();
 
     await loadEvents();
 
-    openEvent(eventId);
+    render();
 }
 
 
@@ -1953,25 +2235,23 @@ function goToday() {
 function previousPeriod() {
 
     if (currentView === "month") {
+
         currentDate.setMonth(
             currentDate.getMonth() - 1
         );
-    }
 
-    else if (
-        currentView === "week"
-    ) {
+    } else if (currentView === "week") {
+
         currentDate.setDate(
             currentDate.getDate() - 7
         );
-    }
 
-    else {
+    } else {
+
         currentDate.setDate(
             currentDate.getDate() - 1
         );
     }
-
 
     render();
 }
@@ -1980,35 +2260,25 @@ function previousPeriod() {
 function nextPeriod() {
 
     if (currentView === "month") {
+
         currentDate.setMonth(
             currentDate.getMonth() + 1
         );
-    }
 
-    else if (
-        currentView === "week"
-    ) {
+    } else if (currentView === "week") {
+
         currentDate.setDate(
             currentDate.getDate() + 7
         );
-    }
 
-    else {
+    } else {
+
         currentDate.setDate(
             currentDate.getDate() + 1
         );
     }
 
-
     render();
-}
-
-
-function handleDateClick(date, hour = null) {
-
-    if (!canManage()) return;
-
-    openCreateEventModal(date, hour);
 }
 
 
@@ -2018,30 +2288,38 @@ function handleDateClick(date, hour = null) {
 
 function showModal(content) {
 
-    const container =
-        document.getElementById("modalContainer");
+    closeModal();
 
-    if (!container) return;
+    const modal =
+        document.createElement("div");
 
-    container.innerHTML = `
+    modal.id = "schedule-modal";
+
+    modal.className = "modal-overlay";
+
+    modal.innerHTML = `
         <div
-            class="modal-backdrop"
-            onclick="handleModalBackdrop(event)"
+            class="modal-card"
+            onclick="event.stopPropagation()"
         >
             ${content}
         </div>
     `;
 
-    document.body.classList.add("modal-open");
+    modal.addEventListener(
+        "click",
+        handleModalBackdrop
+    );
+
+    document.body.appendChild(modal);
 }
 
 
 function handleModalBackdrop(event) {
 
     if (
-        event.target.classList.contains(
-            "modal-backdrop"
-        )
+        event.target.id ===
+        "schedule-modal"
     ) {
         closeModal();
     }
@@ -2050,59 +2328,14 @@ function handleModalBackdrop(event) {
 
 function closeModal() {
 
-    const container =
-        document.getElementById("modalContainer");
+    const modal =
+        document.getElementById(
+            "schedule-modal"
+        );
 
-    if (container) {
-        container.innerHTML = "";
+    if (modal) {
+        modal.remove();
     }
-
-    document.body.classList.remove("modal-open");
-
-    selectedEvent = null;
-}
-
-
-function showLoginMessage() {
-
-    showModal(`
-        <div class="modal small-modal">
-
-            <div class="modal-header">
-
-                <div>
-                    <span class="modal-eyebrow">
-                        Management Access
-                    </span>
-
-                    <h2>Sign in required</h2>
-                </div>
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
-
-            </div>
-
-            <p class="modal-message">
-                Viewing the schedule is public, but creating
-                and managing events requires staff access.
-            </p>
-
-            <div class="modal-footer">
-
-                <button
-                    class="primary-button"
-                    onclick="openLogin()">
-                    Staff Login
-                </button>
-
-            </div>
-
-        </div>
-    `);
 }
 
 
@@ -2110,103 +2343,123 @@ function showLoginMessage() {
    LOGIN
    ========================================================= */
 
-function openLogin() {
+function openLoginModal() {
 
     showModal(`
-        <div class="modal small-modal">
+        <div class="modal-header">
 
-            <div class="modal-header">
+            <div>
 
-                <div>
-                    <span class="modal-eyebrow">
-                        KNG Schedule
-                    </span>
+                <h2>
+                    Staff Login
+                </h2>
 
-                    <h2>Staff Login</h2>
-                </div>
+                <p>
+                    Sign in to access staff tools.
+                </p>
 
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
+            </div>
+
+            <button
+                class="modal-close"
+                onclick="closeModal()"
+            >
+                ×
+            </button>
+
+        </div>
+
+
+        <form
+            class="modal-form"
+            onsubmit="login(event)"
+        >
+
+            <div class="form-group">
+
+                <label>
+                    Email
+                </label>
+
+                <input
+                    name="email"
+                    type="email"
+                    required
+                    autocomplete="username"
+                    placeholder="Staff email"
+                >
 
             </div>
 
 
-            <form onsubmit="login(event)">
+            <div class="form-group">
 
-                <div class="form-field">
-                    <label>Email</label>
+                <label>
+                    Password
+                </label>
 
-                    <input
-                        id="loginEmail"
-                        type="email"
-                        autocomplete="email"
-                        required
-                    >
-                </div>
+                <input
+                    name="password"
+                    type="password"
+                    required
+                    autocomplete="current-password"
+                    placeholder="Password"
+                >
 
-
-                <div class="form-field">
-                    <label>Password</label>
-
-                    <input
-                        id="loginPassword"
-                        type="password"
-                        autocomplete="current-password"
-                        required
-                    >
-                </div>
+            </div>
 
 
-                <div id="loginError"
-                    class="form-error">
-                </div>
+            <div
+                id="login-error"
+                class="form-error"
+            ></div>
 
 
-                <div class="modal-footer">
+            <div class="modal-actions">
 
-                    <button
-                        type="submit"
-                        class="primary-button">
-                        Sign In
-                    </button>
+                <button
+                    type="button"
+                    class="secondary-button"
+                    onclick="closeModal()"
+                >
+                    Cancel
+                </button>
 
-                </div>
+                <button
+                    type="submit"
+                    class="primary-button"
+                >
+                    Login
+                </button>
 
-            </form>
+            </div>
 
-        </div>
+        </form>
     `);
 }
 
 
-async function login(event) {
+async function login(formEvent) {
 
-    event.preventDefault();
+    formEvent.preventDefault();
 
+    const form =
+        formEvent.target;
 
     const email =
-        document.getElementById(
-            "loginEmail"
-        ).value.trim();
-
+        form.email.value.trim();
 
     const password =
-        document.getElementById(
-            "loginPassword"
-        ).value;
-
+        form.password.value;
 
     const errorBox =
         document.getElementById(
-            "loginError"
+            "login-error"
         );
 
-
-    errorBox.textContent = "";
-
+    if (errorBox) {
+        errorBox.textContent = "";
+    }
 
     const { error } =
         await supabaseClient.auth
@@ -2215,42 +2468,51 @@ async function login(event) {
                 password
             });
 
-
     if (error) {
 
-        errorBox.textContent =
-            error.message;
+        console.error(error);
+
+        if (errorBox) {
+            errorBox.textContent =
+                error.message ||
+                "Unable to log in.";
+        }
 
         return;
     }
 
-
     closeModal();
+
+    const { data } =
+        await supabaseClient.auth
+            .getSession();
+
+    currentUser =
+        data?.session?.user || null;
 
     await loadAccess();
 
     render();
 }
 
-async function logout() {
-    const { error } = await supabaseClient.auth.signOut();
 
-    if (error) {
-        console.error("Logout failed:", error);
-        return;
-    }
+async function logout() {
+
+    await supabaseClient.auth.signOut();
 
     currentUser = null;
+
     currentAccess = null;
 
     render();
 }
 
+
 /* =========================================================
    DATE HELPERS
    ========================================================= */
 
-function formatDate(date) {
+function toDateInputValue(date) {
 
     const year =
         date.getFullYear();
@@ -2265,18 +2527,33 @@ function formatDate(date) {
             date.getDate()
         ).padStart(2, "0");
 
-
     return `${year}-${month}-${day}`;
+}
+
+
+function formatDate(dateString) {
+
+    if (!dateString) {
+        return "";
+    }
+
+    return new Date(
+        `${dateString}T12:00:00`
+    ).toLocaleDateString(
+        "en-GB"
+    );
 }
 
 
 function formatDisplayDate(dateString) {
 
-    const date =
-        new Date(`${dateString}T00:00:00`);
+    if (!dateString) {
+        return "";
+    }
 
-
-    return date.toLocaleDateString(
+    return new Date(
+        `${dateString}T12:00:00`
+    ).toLocaleDateString(
         "en-GB",
         {
             weekday: "long",
@@ -2288,9 +2565,15 @@ function formatDisplayDate(dateString) {
 }
 
 
-function formatShortDate(date) {
+function formatShortDate(dateString) {
 
-    return date.toLocaleDateString(
+    if (!dateString) {
+        return "";
+    }
+
+    return new Date(
+        `${dateString}T12:00:00`
+    ).toLocaleDateString(
         "en-GB",
         {
             day: "numeric",
@@ -2300,26 +2583,15 @@ function formatShortDate(date) {
 }
 
 
-function formatTime(time) {
+function formatTime(dateTime) {
 
-    if (!time) return "";
+    if (!dateTime) {
+        return "";
+    }
 
-    const [hour, minute] =
-        time.split(":");
-
-
-    const date =
-        new Date();
-
-    date.setHours(
-        parseInt(hour),
-        parseInt(minute),
-        0,
-        0
-    );
-
-
-    return date.toLocaleTimeString(
+    return new Date(
+        dateTime
+    ).toLocaleTimeString(
         "en-GB",
         {
             hour: "2-digit",
@@ -2330,26 +2602,35 @@ function formatTime(time) {
 }
 
 
+function formatHour(hour) {
+
+    return `${String(hour).padStart(2, "0")}:00`;
+}
+
+
 function startOfWeek(date) {
 
     const result =
         new Date(date);
 
-    const day =
-        result.getDay();
-
-    const difference =
-        day === 0
-            ? -6
-            : 1 - day;
-
-
-    result.setDate(
-        result.getDate() + difference
+    result.setHours(
+        0,
+        0,
+        0,
+        0
     );
 
+    let day =
+        result.getDay();
 
-    result.setHours(0, 0, 0, 0);
+    if (day === 0) {
+        day = 7;
+    }
+
+    result.setDate(
+        result.getDate() -
+        (day - 1)
+    );
 
     return result;
 }
@@ -2361,9 +2642,12 @@ function isToday(date) {
         new Date();
 
     return (
-        date.getFullYear() === today.getFullYear() &&
-        date.getMonth() === today.getMonth() &&
-        date.getDate() === today.getDate()
+        date.getFullYear() ===
+            today.getFullYear() &&
+        date.getMonth() ===
+            today.getMonth() &&
+        date.getDate() ===
+            today.getDate()
     );
 }
 
@@ -2378,13 +2662,12 @@ function escapeHtml(value) {
         return "";
     }
 
-
     return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
 }
 
 
@@ -2398,19 +2681,19 @@ function escapeAttribute(value) {
    GLOBAL FUNCTIONS
    ========================================================= */
 
-window.setView = setView;
-window.goToday = goToday;
-window.previousPeriod = previousPeriod;
-window.nextPeriod = nextPeriod;
+window.render = render;
 
-window.handleDateClick = handleDateClick;
+window.handleDateClick =
+    handleDateClick;
 
 window.openCreateEventModal =
     openCreateEventModal;
 
-window.createEvent = createEvent;
+window.createEvent =
+    createEvent;
 
-window.openEvent = openEvent;
+window.openEvent =
+    openEvent;
 
 window.openEditEvent =
     openEditEvent;
@@ -2427,17 +2710,29 @@ window.openStaffAllocation =
 window.saveStaffAllocation =
     saveStaffAllocation;
 
-window.closeModal =
-    closeModal;
+window.setView =
+    setView;
 
-window.handleModalBackdrop =
-    handleModalBackdrop;
+window.goToday =
+    goToday;
 
-window.openLogin =
-    openLogin;
+window.previousPeriod =
+    previousPeriod;
+
+window.nextPeriod =
+    nextPeriod;
+
+window.openLoginModal =
+    openLoginModal;
 
 window.login =
     login;
+
+window.logout =
+    logout;
+
+window.closeModal =
+    closeModal;
 
 
 /* =========================================================
