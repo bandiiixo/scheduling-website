@@ -1022,7 +1022,7 @@ function openCreateEventModal(date = null, hour = null) {
             </div>
 
 
-            <form onsubmit="createEvent(event)">
+            <form id="createEventForm">
 
                 <div class="form-grid">
 
@@ -1152,6 +1152,12 @@ function openCreateEventModal(date = null, hour = null) {
 
         </div>
     `);
+
+    const createForm = document.getElementById("createEventForm");
+
+    if (createForm) {
+        createForm.addEventListener("submit", createEvent);
+    }
 }
 
 
@@ -1161,90 +1167,75 @@ async function createEvent(event) {
     const errorBox =
         document.getElementById("eventFormError");
 
-    errorBox.textContent = "";
+    if (errorBox) errorBox.textContent = "";
 
     try {
         const title =
-            document.getElementById("eventTitle").value.trim();
+            document.getElementById("eventTitle")?.value.trim() || "";
 
         const eventTypeId =
-            document.getElementById("eventType").value;
+            document.getElementById("eventType")?.value || "";
 
         const eventDate =
-            document.getElementById("eventDate").value;
+            document.getElementById("eventDate")?.value || "";
 
         const startTime =
-            document.getElementById("eventStart").value;
+            document.getElementById("eventStart")?.value || "";
 
         const endTime =
-            document.getElementById("eventEnd").value;
+            document.getElementById("eventEnd")?.value || "";
 
         const location =
-            document.getElementById("eventLocation").value.trim();
+            document.getElementById("eventLocation")?.value.trim() || "";
 
         const staffRequired =
             parseInt(
-                document.getElementById("eventStaffRequired").value,
+                document.getElementById("eventStaffRequired")?.value || "0",
                 10
             ) || 0;
 
         const description =
-            document.getElementById("eventDescription").value.trim();
-
+            document.getElementById("eventDescription")?.value.trim() || "";
 
         if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
-            errorBox.textContent =
-                "Please complete all required fields.";
+            if (errorBox) {
+                errorBox.textContent =
+                    "Please complete all required fields.";
+            }
             return;
         }
-
 
         if (endTime <= startTime) {
-            errorBox.textContent =
-                "End time must be later than start time.";
+            if (errorBox) {
+                errorBox.textContent =
+                    "End time must be later than start time.";
+            }
             return;
         }
 
-
-        /*
-         * Get the REAL authenticated user from Supabase.
-         * Do not rely only on currentUser.
-         */
-        const {
-            data: userData,
-            error: userError
-        } = await supabaseClient.auth.getUser();
-
+        const { data: userData, error: userError } =
+            await supabaseClient.auth.getUser();
 
         if (userError) {
-            console.error(
-                "Could not get authenticated user:",
-                userError
-            );
-
-            errorBox.textContent =
-                `Authentication error: ${userError.message}`;
-
+            console.error("Could not get authenticated user:", userError);
+            if (errorBox) {
+                errorBox.textContent =
+                    `Authentication error: ${userError.message}`;
+            }
             return;
         }
-
 
         if (!userData?.user) {
-            errorBox.textContent =
-                "You are not signed in. Please sign in again.";
-
+            if (errorBox) {
+                errorBox.textContent =
+                    "You are not signed in. Please sign in again.";
+            }
             return;
         }
 
+        if (errorBox) errorBox.textContent = "Creating event...";
 
-        errorBox.textContent =
-            "Creating event...";
-
-
-        /*
-         * Call the database RPC.
-         */
-        const rpcResult =
+        const { data: eventId, error } =
             await supabaseClient.rpc(
                 "create_schedule_event",
                 {
@@ -1259,134 +1250,54 @@ async function createEvent(event) {
                 }
             );
 
-
-        console.log(
-            "create_schedule_event RPC result:",
-            rpcResult
-        );
-
-
-        const {
-            data: eventId,
+        console.log("create_schedule_event RPC result:", {
+            eventId,
             error
-        } = rpcResult;
+        });
 
-
-        /*
-         * RPC failed.
-         */
         if (error) {
-            console.error(
-                "create_schedule_event failed:",
-                error
-            );
-
-            const details = [
-                error.message,
-                error.code
-                    ? `Code: ${error.code}`
-                    : "",
-                error.details
-                    ? `Details: ${error.details}`
-                    : "",
-                error.hint
-                    ? `Hint: ${error.hint}`
-                    : ""
-            ]
-                .filter(Boolean)
-                .join(" | ");
-
-
-            errorBox.textContent =
-                `Create failed: ${details}`;
-
+            console.error("create_schedule_event failed:", error);
+            if (errorBox) {
+                errorBox.textContent =
+                    `Create failed: ${error.message || "Unknown database error."}`;
+            }
             return;
         }
 
-
-        /*
-         * The RPC must return the UUID created by PostgreSQL.
-         */
         if (!eventId) {
-            console.error(
-                "RPC returned no event ID:",
-                rpcResult
-            );
-
-            errorBox.textContent =
-                "Create failed: the database did not return an event ID.";
-
+            console.error("RPC returned no event ID.");
+            if (errorBox) {
+                errorBox.textContent =
+                    "Create failed: the database did not return an event ID.";
+            }
             return;
         }
 
+        console.log("EVENT CREATED IN DATABASE:", eventId);
 
-        console.log(
-            "EVENT CREATED IN DATABASE:",
-            eventId
-        );
+        await loadEvents();
 
-
-        /*
-         * Now reload the actual events from Supabase.
-         */
-        try {
-            await loadEvents();
-        } catch (loadError) {
-
-            console.error(
-                "Event was created but loadEvents() failed:",
-                loadError
-            );
-
-            errorBox.textContent =
-                `Event was created, but the calendar could not reload: ${
-                    loadError?.message || String(loadError)
-                }`;
-
-            return;
-        }
-
-
-        /*
-         * Make absolutely sure the newly-created event
-         * exists in the rows returned by Supabase.
-         */
         const createdEvent =
-            events.find(
-                item => item.id === eventId
-            );
-
+            events.find(item => item.id === eventId);
 
         if (!createdEvent) {
-
             console.error(
-                "RPC created event but loadEvents() did not return it.",
-                {
-                    eventId,
-                    events
-                }
+                "Event was created but could not be read back from public.events.",
+                { eventId, events }
             );
 
-            errorBox.textContent =
-                "The event was created, but the calendar could not read it back.";
-
+            if (errorBox) {
+                errorBox.textContent =
+                    "The event was created, but the calendar could not read it back.";
+            }
             return;
         }
 
-
-        /*
-         * Jump the calendar to the newly-created event.
-         */
         currentDate =
-            new Date(
-                `${createdEvent.event_date}T12:00:00`
-            );
-
+            new Date(`${createdEvent.event_date}T12:00:00`);
 
         closeModal();
-
         render();
-
 
         console.log(
             "Schedule event displayed successfully:",
@@ -1394,19 +1305,15 @@ async function createEvent(event) {
         );
 
     } catch (createError) {
+        console.error("Unexpected createEvent error:", createError);
 
-        console.error(
-            "Unexpected createEvent error:",
-            createError
-        );
-
-        errorBox.textContent =
-            `Create failed: ${
-                createError?.message ||
-                String(createError)
-            }`;
+        if (errorBox) {
+            errorBox.textContent =
+                `Create failed: ${createError?.message || String(createError)}`;
+        }
     }
 }
+
 function pendingRequestCount() {
     if (!canManage()) return 0;
     return eventRequests.filter(request => request.status === "pending").length;
