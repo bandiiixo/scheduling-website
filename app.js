@@ -1134,945 +1134,97 @@ function openCreateEventModal(date = null, hour = null) {
 
 
 async function createEvent(event) {
-
     event.preventDefault();
 
-    const errorBox =
-        document.getElementById("eventFormError");
-
+    const errorBox = document.getElementById("eventFormError");
     errorBox.textContent = "";
 
-    const title =
-        document.getElementById("eventTitle").value.trim();
-
-    const eventTypeId =
-        document.getElementById("eventType").value;
-
-    const eventDate =
-        document.getElementById("eventDate").value;
-
-    const startTime =
-        document.getElementById("eventStart").value;
-
-    const endTime =
-        document.getElementById("eventEnd").value;
-
-    const location =
-        document.getElementById("eventLocation").value.trim();
-
+    const title = document.getElementById("eventTitle").value.trim();
+    const eventTypeId = document.getElementById("eventType").value;
+    const eventDate = document.getElementById("eventDate").value;
+    const startTime = document.getElementById("eventStart").value;
+    const endTime = document.getElementById("eventEnd").value;
+    const location = document.getElementById("eventLocation").value.trim();
     const staffRequired =
-        parseInt(
-            document.getElementById(
-                "eventStaffRequired"
-            ).value
-        ) || 0;
-
-    const description =
-        document.getElementById(
-            "eventDescription"
-        ).value.trim();
+        parseInt(document.getElementById("eventStaffRequired").value, 10) || 0;
+    const description = document.getElementById("eventDescription").value.trim();
 
     if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
-        errorBox.textContent =
-            "Please complete all required fields.";
+        errorBox.textContent = "Please complete all required fields.";
         return;
     }
-
-    if (endTime <= startTime) {
-        errorBox.textContent =
-            "End time must be later than start time.";
-        return;
-    }
-
-    const payload = {
-        title,
-        event_type_id: eventTypeId,
-        event_date: eventDate,
-        start_time: startTime,
-        end_time: endTime,
-        location: location || null,
-        description: description || null,
-        staff_required: staffRequired,
-        created_by: currentUser?.id || null,
-        updated_by: currentUser?.id || null
-    };
-
-    const { data, error } = await supabaseClient
-        .from("events")
-        .insert(payload)
-        .select(`
-            *,
-            event_types (
-                id,
-                name,
-                colour,
-                description
-            ),
-            event_staff (
-                id,
-                staff_id,
-                role,
-                staff (
-                    id,
-                    name,
-                    discord_id
-                )
-            )
-        `)
-        .single();
-
-    if (error) {
-        errorBox.textContent = error.message;
-        console.error("Create event failed:", error);
-        return;
-    }
-
-    // Put the exact row returned by Supabase into the local calendar
-    // immediately. This prevents a successful insert from appearing to
-    // vanish while the calendar is refreshing.
-    events = [
-        ...events.filter(item => item.id !== data.id),
-        data
-    ].sort((a, b) =>
-        `${a.event_date} ${a.start_time}`
-            .localeCompare(`${b.event_date} ${b.start_time}`)
-    );
-
-    // Jump to the newly-created event's date so it is actually visible.
-    currentDate = new Date(`${data.event_date}T12:00:00`);
-
-    closeModal();
-    render();
-
-    // Sync with Supabase in the background. If that refresh fails, keep the
-    // successfully-created event visible rather than wiping it from the UI.
-    try {
-        await loadEvents();
-        render();
-    } catch (syncError) {
-        console.error("Event created, but calendar sync failed:", syncError);
-    }
-}
-
-
-/* =========================================================
-   EVENT REQUESTS
-   ========================================================= */
-
-function pendingRequestCount() {
-    if (!canManage()) return 0;
-    return eventRequests.filter(request => request.status === "pending").length;
-}
-
-function requestStatusLabel(status) {
-    return {
-        pending: "Pending",
-        approved: "Approved",
-        rejected: "Rejected"
-    }[status] || status;
-}
-
-function requestStatusClass(status) {
-    return `request-status request-status-${status}`;
-}
-
-function openCreateRequestModal() {
-    if (!isStaff()) {
-        showLoginMessage();
-        return;
-    }
-
-    const defaultDate = formatDate(currentDate);
-
-    showModal(`
-        <div class="modal request-modal">
-            <div class="modal-header">
-                <div>
-                    <span class="modal-eyebrow">Staff Submission</span>
-                    <h2>Submit Event Request</h2>
-                </div>
-                <button class="modal-close" onclick="closeModal()">×</button>
-            </div>
-
-            <div class="request-info-banner">
-                <strong>Management approval required</strong>
-                <span>This request will not appear on the public calendar until Management approves it.</span>
-            </div>
-
-            <form onsubmit="submitEventRequest(event)">
-                <div class="form-grid">
-                    <div class="form-field full">
-                        <label>Event title</label>
-                        <input id="requestTitle" required maxlength="120" placeholder="e.g. Legion BR">
-                    </div>
-
-                    <div class="form-field">
-                        <label>Event type</label>
-                        <select id="requestEventType" required>
-                            ${eventTypes.map(type => `
-                                <option value="${type.id}">${escapeHtml(type.name)}</option>
-                            `).join("")}
-                        </select>
-                    </div>
-
-                    <div class="form-field">
-                        <label>Staff required</label>
-                        <input id="requestStaffRequired" type="number" min="0" max="100" value="0">
-                    </div>
-
-                    <div class="form-field">
-                        <label>Date</label>
-                        <input id="requestDate" type="date" value="${defaultDate}" required>
-                    </div>
-
-                    <div class="form-field">
-                        <label>Start time</label>
-                        <input id="requestStart" type="time" value="19:00" required>
-                    </div>
-
-                    <div class="form-field">
-                        <label>End time</label>
-                        <input id="requestEnd" type="time" value="20:00" required>
-                    </div>
-
-                    <div class="form-field full">
-                        <label>Location</label>
-                        <input id="requestLocation" maxlength="200" placeholder="e.g. Legion Square">
-                    </div>
-
-                    <div class="form-field full">
-                        <label>Reason / event details</label>
-                        <textarea id="requestDescription" rows="5" maxlength="2000" placeholder="Tell Management what the event is for..."></textarea>
-                    </div>
-                </div>
-
-                <div id="requestFormError" class="form-error"></div>
-
-                <div class="modal-footer">
-                    <button type="button" class="secondary-button" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="primary-button">Submit Request</button>
-                </div>
-            </form>
-        </div>
-    `);
-}
-
-async function submitEventRequest(event) {
-    event.preventDefault();
-
-    const errorBox = document.getElementById("requestFormError");
-    errorBox.textContent = "";
-
-    const title = document.getElementById("requestTitle").value.trim();
-    const eventTypeId = document.getElementById("requestEventType").value;
-    const eventDate = document.getElementById("requestDate").value;
-    const startTime = document.getElementById("requestStart").value;
-    const endTime = document.getElementById("requestEnd").value;
-    const location = document.getElementById("requestLocation").value.trim();
-    const staffRequired = Math.max(0, parseInt(document.getElementById("requestStaffRequired").value, 10) || 0);
-    const description = document.getElementById("requestDescription").value.trim();
 
     if (endTime <= startTime) {
         errorBox.textContent = "End time must be later than start time.";
         return;
     }
 
-    const { error } = await supabaseClient
-        .from("event_requests")
-        .insert({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            submitted_by: currentUser.id,
-            status: "pending"
+    if (!canManage()) {
+        errorBox.textContent = "You do not have permission to create events.";
+        return;
+    }
+
+    // Management creation goes through the same trusted database pattern as
+    // request approval. The RPC performs the manager permission check server-side
+    // and creates the event using auth.uid() as created_by.
+    const { data: eventId, error } = await supabaseClient
+        .rpc("create_schedule_event", {
+            p_title: title,
+            p_event_type_id: eventTypeId,
+            p_event_date: eventDate,
+            p_start_time: startTime,
+            p_end_time: endTime,
+            p_location: location || null,
+            p_description: description || null,
+            p_staff_required: staffRequired
         });
 
     if (error) {
+        console.error("Create event failed:", error);
         errorBox.textContent = error.message;
         return;
     }
 
-    await loadEventRequests();
-    closeModal();
-    openMyRequests();
-}
-
-function openMyRequests() {
-    if (!isStaff()) {
-        showLoginMessage();
-        return;
-    }
-
-    const requests = eventRequests;
-
-    showModal(`
-        <div class="modal request-list-modal">
-            <div class="modal-header">
-                <div>
-                    <span class="modal-eyebrow">Staff Submissions</span>
-                    <h2>My Event Requests</h2>
-                </div>
-                <button class="modal-close" onclick="closeModal()">×</button>
-            </div>
-
-            <div class="request-list">
-                ${requests.length ? requests.map(renderRequestCard).join("") : `
-                    <div class="request-empty">
-                        <div class="request-empty-icon">◇</div>
-                        <strong>No requests yet</strong>
-                        <span>Submit an event request and it will appear here for Management to review.</span>
-                    </div>
-                `}
-            </div>
-
-            <div class="modal-footer">
-                <button class="secondary-button" onclick="closeModal()">Close</button>
-                <button class="primary-button" onclick="closeModal(); openCreateRequestModal()">+ New Request</button>
-            </div>
-        </div>
-    `);
-}
-
-function openEventRequests() {
-    if (!canManage()) return;
-
-    const pending = eventRequests.filter(request => request.status === "pending");
-    const reviewed = eventRequests.filter(request => request.status !== "pending");
-
-    showModal(`
-        <div class="modal request-list-modal management-request-modal">
-            <div class="modal-header">
-                <div>
-                    <span class="modal-eyebrow">Management</span>
-                    <h2>Event Requests</h2>
-                </div>
-                <button class="modal-close" onclick="closeModal()">×</button>
-            </div>
-
-            <div class="request-section-title">
-                <span>Awaiting Approval</span>
-                <strong>${pending.length}</strong>
-            </div>
-
-            <div class="request-list">
-                ${pending.length ? pending.map(renderManagementRequestCard).join("") : `
-                    <div class="request-empty compact">
-                        <strong>No pending requests</strong>
-                        <span>The city is suspiciously organised.</span>
-                    </div>
-                `}
-            </div>
-
-            ${reviewed.length ? `
-                <div class="request-section-title reviewed-title">
-                    <span>Recently Reviewed</span>
-                    <strong>${reviewed.length}</strong>
-                </div>
-                <div class="request-list reviewed-list">
-                    ${reviewed.slice(0, 10).map(renderRequestCard).join("")}
-                </div>
-            ` : ""}
-
-            <div class="modal-footer">
-                <button class="secondary-button" onclick="closeModal()">Close</button>
-            </div>
-        </div>
-    `);
-}
-
-function renderRequestCard(request) {
-    const colour = request.event_types?.colour || "#d1002f";
-
-    return `
-        <div class="request-card" style="--request-colour:${colour}">
-            <div class="request-card-main">
-                <div class="request-card-topline">
-                    <span class="request-type">${escapeHtml(request.event_types?.name || "Event")}</span>
-                    <span class="${requestStatusClass(request.status)}">${requestStatusLabel(request.status)}</span>
-                </div>
-                <h3>${escapeHtml(request.title)}</h3>
-                <div class="request-meta">
-                    <span>📅 ${formatDisplayDate(request.event_date)}</span>
-                    <span>⏰ ${formatTime(request.start_time)} - ${formatTime(request.end_time)}</span>
-                    ${request.location ? `<span>📍 ${escapeHtml(request.location)}</span>` : ""}
-                    ${request.staff_required > 0 ? `<span>👥 ${request.staff_required} staff</span>` : ""}
-                </div>
-                ${request.description ? `<p>${escapeHtml(request.description).replace(/\n/g, "<br>")}</p>` : ""}
-            </div>
-        </div>
-    `;
-}
-
-function renderManagementRequestCard(request) {
-    const colour = request.event_types?.colour || "#d1002f";
-
-    return `
-        <div class="request-card management-request-card" style="--request-colour:${colour}">
-            <div class="request-card-main">
-                <div class="request-card-topline">
-                    <span class="request-type">${escapeHtml(request.event_types?.name || "Event")}</span>
-                    <span class="request-status request-status-pending">Pending approval</span>
-                </div>
-                <h3>${escapeHtml(request.title)}</h3>
-                <div class="request-meta">
-                    <span>📅 ${formatDisplayDate(request.event_date)}</span>
-                    <span>⏰ ${formatTime(request.start_time)} - ${formatTime(request.end_time)}</span>
-                    ${request.location ? `<span>📍 ${escapeHtml(request.location)}</span>` : ""}
-                    ${request.staff_required > 0 ? `<span>👥 ${request.staff_required} staff</span>` : ""}
-                </div>
-                ${request.description ? `<p>${escapeHtml(request.description).replace(/\n/g, "<br>")}</p>` : ""}
-            </div>
-            <div class="request-actions">
-                <button class="danger-button" onclick="rejectEventRequest('${request.id}')">Reject</button>
-                <button class="primary-button" onclick="approveEventRequest('${request.id}')">Approve</button>
-            </div>
-        </div>
-    `;
-}
-
-async function approveEventRequest(requestId) {
-    if (!canManage()) return;
-
-    const request = eventRequests.find(item => item.id === requestId);
-    if (!request || request.status !== "pending") return;
-
-    if (!confirm(`Approve "${request.title}" and add it to the public calendar?`)) return;
-
-    // Use the database approval function. It creates the real calendar event
-    // and approves the request in one transaction, so we cannot end up with
-    // an approved request that has no calendar event (or vice versa).
-    const { data, error } = await supabaseClient
-        .rpc("approve_event_request", {
-            p_request_id: requestId
-        });
-
-    if (error) {
-        console.error("Failed to approve event request:", error);
-        alert(`The request could not be approved.\n\n${error.message}`);
-        return;
-    }
-
-    console.log("Event request approved:", data);
-
-    // The calendar reads directly from public.events, so reload that table
-    // before re-rendering the calendar.
+    // Reload the real row from Supabase, then jump to its date so it is
+    // immediately visible even when the manager created it from another month.
     await loadEvents();
-    await loadEventRequests();
+    currentDate = new Date(`${eventDate}T12:00:00`);
     render();
-    openEventRequests();
-}
+    closeModal();
 
-async function rejectEventRequest(requestId) {
-    if (!canManage()) return;
-
-    const request = eventRequests.find(item => item.id === requestId);
-    if (!request || request.status !== "pending") return;
-
-    const reason = prompt("Optional rejection reason:", "");
-    if (reason === null) return;
-
-    const { error } = await supabaseClient
-        .from("event_requests")
-        .update({
-            status: "rejected",
-            management_notes: reason.trim() || null,
-            reviewed_by: currentUser.id,
-            reviewed_at: new Date().toISOString()
-        })
-        .eq("id", requestId)
-        .eq("status", "pending");
-
-    if (error) {
-        alert(error.message);
-        return;
-    }
-
-    await loadEventRequests();
-    render();
-    openEventRequests();
-}
-
-
-/* =========================================================
-   EVENT DETAILS
-   ========================================================= */
-
-function openEvent(eventId) {
-
-    const event =
-        events.find(item => item.id === eventId);
-
-    if (!event) return;
-
-    selectedEvent = event;
-
-
-    const colour =
-        event.event_types?.colour || "#3b82f6";
-
-
-    const allocations =
-        event.event_staff || [];
-
-
-    showModal(`
-        <div class="modal event-detail-modal">
-
-            <div
-                class="event-detail-accent"
-                style="background:${colour}">
-            </div>
-
-
-            <div class="modal-header">
-
-                <div>
-
-                    <span class="modal-eyebrow">
-                        ${escapeHtml(
-                            event.event_types?.name || "Event"
-                        )}
-                    </span>
-
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-
-                </div>
-
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
-
-            </div>
-
-
-            <div class="event-detail-content">
-
-                <div class="event-detail-row">
-                    <span>📅</span>
-
-                    <div>
-                        <strong>Date</strong>
-
-                        <p>
-                            ${formatDisplayDate(
-                                event.event_date
-                            )}
-                        </p>
-                    </div>
-                </div>
-
-
-                <div class="event-detail-row">
-                    <span>⏰</span>
-
-                    <div>
-                        <strong>Time</strong>
-
-                        <p>
-                            ${formatTime(event.start_time)}
-                            -
-                            ${formatTime(event.end_time)}
-                        </p>
-                    </div>
-                </div>
-
-
-                ${
-                    event.location
-                        ? `
-                            <div class="event-detail-row">
-                                <span>📍</span>
-
-                                <div>
-                                    <strong>Location</strong>
-                                    <p>
-                                        ${escapeHtml(
-                                            event.location
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                          `
-                        : ""
-                }
-
-
-                ${
-                    event.description
-                        ? `
-                            <div class="event-detail-description">
-                                <strong>Description</strong>
-
-                                <p>
-                                    ${escapeHtml(
-                                        event.description
-                                    ).replace(
-                                        /\n/g,
-                                        "<br>"
-                                    )}
-                                </p>
-                            </div>
-                          `
-                        : ""
-                }
-
-
-                ${
-                    event.staff_required > 0
-                        ? `
-                            <div class="staff-section">
-
-                                <div class="staff-section-header">
-
-                                    <div>
-                                        <strong>
-                                            Staff Allocation
-                                        </strong>
-
-                                        <span>
-                                            ${allocations.length}
-                                            /
-                                            ${event.staff_required}
-                                        </span>
-                                    </div>
-
-                                    ${
-                                        canManage()
-                                            ? `
-                                                <button
-                                                    class="secondary-button"
-                                                    onclick="openStaffAllocation('${event.id}')">
-                                                    Manage Staff
-                                                </button>
-                                              `
-                                            : ""
-                                    }
-
-                                </div>
-
-
-                                ${
-                                    allocations.length
-                                        ? `
-                                            <div class="allocated-staff">
-                                                ${allocations.map(
-                                                    allocation => `
-                                                        <div class="staff-chip">
-                                                            <span>
-                                                                ${escapeHtml(
-                                                                    allocation.staff?.name
-                                                                    || "Unknown"
-                                                                )}
-                                                            </span>
-
-                                                            ${
-                                                                allocation.role
-                                                                    ? `<small>
-                                                                        ${escapeHtml(
-                                                                            allocation.role
-                                                                        )}
-                                                                       </small>`
-                                                                    : ""
-                                                            }
-                                                        </div>
-                                                    `
-                                                ).join("")}
-                                            </div>
-                                          `
-                                        : `
-                                            <div class="no-staff">
-                                                No staff allocated yet.
-                                            </div>
-                                          `
-                                }
-
-                            </div>
-                          `
-                        : ""
-                }
-
-            </div>
-
-
-            ${
-                canManage()
-                    ? `
-                        <div class="modal-footer">
-
-                            <button
-                                class="danger-button"
-                                onclick="deleteEvent('${event.id}')">
-                                Delete Event
-                            </button>
-
-                            <div class="modal-footer-right">
-
-                                <button
-                                    class="secondary-button"
-                                    onclick="openEditEvent('${event.id}')">
-                                    Edit Event
-                                </button>
-
-                                <button
-                                    class="primary-button"
-                                    onclick="closeModal()">
-                                    Done
-                                </button>
-
-                            </div>
-
-                        </div>
-                      `
-                    : `
-                        <div class="modal-footer">
-                            <button
-                                class="primary-button"
-                                onclick="closeModal()">
-                                Close
-                            </button>
-                        </div>
-                      `
-            }
-
-        </div>
-    `);
-}
-
-
-/* =========================================================
-   EDIT EVENT
-   ========================================================= */
-
-function openEditEvent(eventId) {
-
-    const event =
-        events.find(item => item.id === eventId);
-
-    if (!event || !canManage()) return;
-
-
-    showModal(`
-        <div class="modal">
-
-            <div class="modal-header">
-
-                <div>
-                    <span class="modal-eyebrow">
-                        Edit Event
-                    </span>
-
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-                </div>
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
-
-            </div>
-
-
-            <form onsubmit="updateEvent(event, '${event.id}')">
-
-                <div class="form-grid">
-
-                    <div class="form-field full">
-                        <label>Event title</label>
-
-                        <input
-                            id="editEventTitle"
-                            required
-                            value="${escapeAttribute(event.title)}"
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Event type</label>
-
-                        <select id="editEventType" required>
-
-                            ${eventTypes.map(type => `
-                                <option
-                                    value="${type.id}"
-                                    ${type.id === event.event_type_id
-                                        ? "selected"
-                                        : ""}
-                                >
-                                    ${escapeHtml(type.name)}
-                                </option>
-                            `).join("")}
-
-                        </select>
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Date</label>
-
-                        <input
-                            id="editEventDate"
-                            type="date"
-                            value="${event.event_date}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Start time</label>
-
-                        <input
-                            id="editEventStart"
-                            type="time"
-                            value="${event.start_time.slice(0,5)}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>End time</label>
-
-                        <input
-                            id="editEventEnd"
-                            type="time"
-                            value="${event.end_time.slice(0,5)}"
-                            required
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Location</label>
-
-                        <input
-                            id="editEventLocation"
-                            value="${escapeAttribute(
-                                event.location || ""
-                            )}"
-                        >
-                    </div>
-
-
-                    <div class="form-field">
-                        <label>Staff required</label>
-
-                        <input
-                            id="editEventStaffRequired"
-                            type="number"
-                            min="0"
-                            value="${event.staff_required || 0}"
-                        >
-                    </div>
-
-
-                    <div class="form-field full">
-                        <label>Description</label>
-
-                        <textarea
-                            id="editEventDescription"
-                            rows="5"
-                        >${escapeHtml(
-                            event.description || ""
-                        )}</textarea>
-                    </div>
-
-                </div>
-
-
-                <div id="editEventFormError"
-                    class="form-error">
-                </div>
-
-
-                <div class="modal-footer">
-
-                    <button
-                        type="button"
-                        class="secondary-button"
-                        onclick="openEvent('${event.id}')">
-                        Cancel
-                    </button>
-
-                    <button
-                        type="submit"
-                        class="primary-button">
-                        Save Changes
-                    </button>
-
-                </div>
-
-            </form>
-
-        </div>
-    `);
+    // Keep the returned id referenced so the RPC response is not silently ignored.
+    console.log("Schedule event created:", eventId);
 }
 
 
 async function updateEvent(formEvent, eventId) {
-
     formEvent.preventDefault();
 
-    const errorBox =
-        document.getElementById("editEventFormError");
-
+    const errorBox = document.getElementById("editEventFormError");
     errorBox.textContent = "";
 
-    const title =
-        document.getElementById("editEventTitle")
-            .value.trim();
-
-    const eventTypeId =
-        document.getElementById("editEventType").value;
-
-    const eventDate =
-        document.getElementById("editEventDate").value;
-
-    const startTime =
-        document.getElementById("editEventStart").value;
-
-    const endTime =
-        document.getElementById("editEventEnd").value;
-
-    const location =
-        document.getElementById("editEventLocation")
-            .value.trim();
-
+    const title = document.getElementById("editEventTitle").value.trim();
+    const eventTypeId = document.getElementById("editEventType").value;
+    const eventDate = document.getElementById("editEventDate").value;
+    const startTime = document.getElementById("editEventStart").value;
+    const endTime = document.getElementById("editEventEnd").value;
+    const location = document.getElementById("editEventLocation").value.trim();
     const staffRequired =
-        parseInt(
-            document.getElementById(
-                "editEventStaffRequired"
-            ).value
-        ) || 0;
-
-    const description =
-        document.getElementById(
-            "editEventDescription"
-        ).value.trim();
+        parseInt(document.getElementById("editEventStaffRequired").value, 10) || 0;
+    const description = document.getElementById("editEventDescription").value.trim();
 
     if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
-        errorBox.textContent =
-            "Please complete all required fields.";
+        errorBox.textContent = "Please complete all required fields.";
         return;
     }
 
     if (endTime <= startTime) {
-        errorBox.textContent =
-            "End time must be later than start time.";
+        errorBox.textContent = "End time must be later than start time.";
+        return;
+    }
+
+    if (!canManage()) {
+        errorBox.textContent = "You do not have permission to edit events.";
         return;
     }
 
@@ -2093,21 +1245,15 @@ async function updateEvent(formEvent, eventId) {
 
     if (error) {
         errorBox.textContent = error.message;
-        console.error("Update event failed:", error);
         return;
     }
 
-    currentDate = new Date(`${eventDate}T12:00:00`);
-
     closeModal();
     await loadEvents();
+    currentDate = new Date(`${eventDate}T12:00:00`);
     render();
 }
 
-
-/* =========================================================
-   DELETE EVENT
-   ========================================================= */
 
 async function deleteEvent(eventId) {
 
