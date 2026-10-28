@@ -1184,20 +1184,20 @@ async function createEvent(event) {
     }
 
 
-    const { error } = await supabaseClient
-        .from("events")
-        .insert({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            created_by: currentUser?.id || null,
-            updated_by: currentUser?.id || null
-        });
+   const { error } = await supabaseClient
+    .from("events")
+    .insert({
+        title,
+        event_type_id: eventTypeId,
+        event_date: date,
+        start_time: start,
+        end_time: end,
+        location: location || null,
+        description: description || null,
+        staff_required: staffRequired,
+        created_by: currentUser?.id || null,
+        updated_by: currentUser?.id || null
+    });
 
 
     if (error) {
