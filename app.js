@@ -235,11 +235,11 @@ function render() {
                                           `
                                         : `
                                             <button
-                                                class="secondary-button"
-                                                onclick="openLoginModal()"
-                                            >
-                                                Staff Login
-                                            </button>
+    class="secondary-button"
+    onclick="openLoginModal()"
+>
+    Staff / Management Login
+</button>
                                           `
                                 }
                               `
@@ -2443,7 +2443,6 @@ function openLoginModal() {
     `);
 }
 
-
 async function login(formEvent) {
 
     formEvent.preventDefault();
@@ -2451,8 +2450,8 @@ async function login(formEvent) {
     const form =
         formEvent.target;
 
-    const email =
-        form.email.value.trim();
+    const role =
+        form.role.value;
 
     const password =
         form.password.value;
@@ -2466,10 +2465,53 @@ async function login(formEvent) {
         errorBox.textContent = "";
     }
 
-    const { error } =
+    if (!role) {
+
+        if (errorBox) {
+            errorBox.textContent =
+                "Please select a login.";
+        }
+
+        return;
+    }
+
+    /*
+     * The shared login accounts are still
+     * Supabase Auth accounts behind the scenes.
+     *
+     * The user chooses Staff or Management here,
+     * rather than entering an email address.
+     */
+
+    const loginAccounts = {
+
+        staff: {
+            email: "staff@kngschedule.local"
+        },
+
+        management: {
+            email: "management@kngschedule.local"
+        }
+
+    };
+
+    const account =
+        loginAccounts[role];
+
+    if (!account) {
+
+        if (errorBox) {
+            errorBox.textContent =
+                "Invalid login.";
+        }
+
+        return;
+    }
+
+    const { data, error } =
         await supabaseClient.auth
             .signInWithPassword({
-                email,
+                email: account.email,
                 password
             });
 
@@ -2479,23 +2521,39 @@ async function login(formEvent) {
 
         if (errorBox) {
             errorBox.textContent =
-                error.message ||
-                "Unable to log in.";
+                "Incorrect login details.";
         }
 
         return;
     }
 
-    closeModal();
-
-    const { data } =
-        await supabaseClient.auth
-            .getSession();
-
     currentUser =
-        data?.session?.user || null;
+        data?.user || null;
 
     await loadAccess();
+
+    /*
+     * Management gets full schedule access.
+     * Staff gets staff-level access.
+     */
+
+    if (role === "management") {
+
+        currentAccess = {
+            ...(currentAccess || {}),
+            role: "manager"
+        };
+
+    } else {
+
+        currentAccess = {
+            ...(currentAccess || {}),
+            role: "staff"
+        };
+
+    }
+
+    closeModal();
 
     render();
 }
