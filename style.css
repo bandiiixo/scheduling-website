@@ -1427,3 +1427,129 @@ body.modal-open {
     height: 0;
     display: none;
 }
+
+/* =========================================================
+   KNG RED ACCENT THEME
+   More of the crown-red identity, without turning the UI
+   into a fire alarm.
+   ========================================================= */
+:root {
+    --red-bright: #ff2448;
+    --red-glow: rgba(239, 51, 79, .24);
+    --red-faint: rgba(214, 31, 58, .07);
+}
+
+body {
+    background:
+        radial-gradient(circle at 8% 8%, rgba(214, 31, 58, .16), transparent 28%),
+        radial-gradient(circle at 92% 4%, rgba(214, 31, 58, .08), transparent 24%),
+        radial-gradient(circle at 50% 100%, rgba(214, 31, 58, .045), transparent 34%),
+        var(--bg);
+}
+
+.schedule-header {
+    border-bottom-color: rgba(214, 31, 58, .28);
+    box-shadow: 0 1px 0 rgba(214, 31, 58, .08), 0 12px 40px rgba(0, 0, 0, .18);
+}
+
+.schedule-logo {
+    background: linear-gradient(145deg, #f21f43 0%, #c5092d 72%, #a50626 100%);
+    border-color: rgba(255, 255, 255, .18);
+    box-shadow: 0 8px 28px rgba(214, 31, 58, .38), 0 0 0 1px rgba(214, 31, 58, .12);
+}
+
+.calendar-navigation button:hover {
+    border-color: rgba(239, 51, 79, .45);
+    background: rgba(214, 31, 58, .10);
+    color: #fff;
+    box-shadow: 0 0 18px rgba(214, 31, 58, .12);
+}
+
+.calendar-navigation h2 {
+    position: relative;
+}
+
+.calendar-navigation h2::before {
+    content: "";
+    display: inline-block;
+    width: 4px;
+    height: 18px;
+    margin-right: 9px;
+    vertical-align: -2px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, var(--red-bright), var(--red));
+    box-shadow: 0 0 12px rgba(239, 51, 79, .35);
+}
+
+.view-switcher {
+    border-color: rgba(214, 31, 58, .18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.02), 0 8px 25px rgba(0,0,0,.16);
+}
+
+.view-switcher button.active {
+    background: linear-gradient(180deg, rgba(239, 51, 79, .22), rgba(214, 31, 58, .13));
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(239, 51, 79, .38), 0 0 18px rgba(214, 31, 58, .12);
+}
+
+.month-calendar,
+.week-calendar,
+.day-calendar {
+    border-color: rgba(214, 31, 58, .18);
+    box-shadow: 0 24px 70px rgba(0,0,0,.34), 0 0 42px rgba(214,31,58,.045);
+}
+
+.weekday-row {
+    background: linear-gradient(180deg, rgba(214,31,58,.10), #0a111c 78%);
+    border-top: 1px solid rgba(239,51,79,.24);
+}
+
+.weekday-row > div:first-child {
+    color: #d96a7b;
+}
+
+.month-cell.today {
+    background:
+        radial-gradient(circle at 50% 0%, rgba(239,51,79,.14), transparent 45%),
+        linear-gradient(180deg, rgba(214,31,58,.10), #0d1622 48%);
+    box-shadow: inset 0 2px 0 rgba(239,51,79,.72);
+}
+
+.month-cell.today .month-day-number {
+    background: linear-gradient(145deg, #f42b4f, #c80e31);
+    box-shadow: 0 5px 18px rgba(214,31,58,.38), 0 0 0 3px rgba(214,31,58,.09);
+}
+
+.month-cell:hover {
+    background: linear-gradient(180deg, rgba(214,31,58,.045), #111e2d 60%);
+}
+
+.week-day-header.today {
+    position: relative;
+    background:
+        radial-gradient(circle at 50% 0%, rgba(239,51,79,.18), transparent 65%),
+        rgba(214,31,58,.075);
+    box-shadow: inset 0 2px 0 var(--red-bright), inset 0 -1px 0 rgba(239,51,79,.14);
+}
+
+.week-day-header.today strong {
+    color: #ff7188;
+    text-shadow: 0 0 16px rgba(239,51,79,.28);
+}
+
+.week-cell:hover {
+    background: rgba(214,31,58,.035);
+}
+
+.agenda-day {
+    border-color: rgba(214,31,58,.16);
+}
+
+.agenda-date {
+    background: linear-gradient(90deg, rgba(214,31,58,.08), #0a111c 55%);
+    border-top: 1px solid rgba(239,51,79,.16);
+}
+
+.agenda-event:hover {
+    background: rgba(214,31,58,.045);
+}
