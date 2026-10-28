@@ -564,69 +564,93 @@ function renderDay(container) {
             year: "numeric"
         });
 
-
     const dateString = formatDate(currentDate);
+    const dayEvents = events
+        .filter(event => event.event_date === dateString)
+        .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
     let html = `
         <div class="day-calendar">
 
             <div class="day-header">
-                ${currentDate.toLocaleDateString("en-GB", {
-                    weekday: "long"
-                })}
-                <strong>
-                    ${currentDate.getDate()}
-                </strong>
+                <div>
+                    <span class="day-header-label">Daily Schedule</span>
+                    <strong>
+                        ${currentDate.toLocaleDateString("en-GB", {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long"
+                        })}
+                    </strong>
+                </div>
+
+                <span class="day-header-hint">
+                    ${canManage() ? "Click an hour to create an event" : "Select an event to view its details"}
+                </span>
             </div>
 
-            <div class="day-body">
+            <div class="day-timeline">
+                <div class="day-hours">
     `;
 
-
     for (let hour = 0; hour < 24; hour++) {
-
-        const hourEvents = events.filter(event => {
-
-            if (event.event_date !== dateString) {
-                return false;
-            }
-
-            return parseInt(
-                event.start_time.split(":")[0]
-            ) === hour;
-        });
-
-
         html += `
-            <div class="day-row">
-
+            <div
+                class="day-row"
+                onclick="handleDateClick('${dateString}', ${hour})"
+            >
                 <div class="time-label">
                     ${String(hour).padStart(2, "0")}:00
                 </div>
-
-                <div
-                    class="day-cell"
-                    onclick="handleDateClick('${dateString}', ${hour})"
-                >
-
-                    ${hourEvents.map(event =>
-                        renderCalendarEvent(event)
-                    ).join("")}
-
-                </div>
-
+                <div class="day-cell"></div>
             </div>
         `;
     }
 
-
     html += `
+                </div>
+
+                <div class="day-events-layer">
+                    ${dayEvents.map(event => renderDayTimelineEvent(event)).join("")}
+                </div>
             </div>
         </div>
     `;
 
-
     container.innerHTML = html;
+}
+
+function renderDayTimelineEvent(event) {
+    const colour = event.event_types?.colour || "#d1002f";
+    const allocated = event.event_staff?.length || 0;
+    const required = event.staff_required || 0;
+
+    const startMinutes = timeToMinutes(event.start_time);
+    const endMinutes = timeToMinutes(event.end_time);
+    const duration = Math.max(endMinutes - startMinutes, 30);
+
+    const top = (startMinutes / 60) * 72;
+    const height = Math.max((duration / 60) * 72 - 4, 48);
+
+    return `
+        <div
+            class="day-timeline-event"
+            style="--event-colour:${colour}; top:${top}px; height:${height}px"
+            onclick="event.stopPropagation(); openEvent('${event.id}')"
+        >
+            <div class="day-event-time">
+                ${formatTime(event.start_time)} - ${formatTime(event.end_time)}
+            </div>
+            <strong>${escapeHtml(event.title)}</strong>
+            <span>${escapeHtml(event.event_types?.name || "Event")}</span>
+            ${required > 0 ? `<span>${allocated}/${required} staff</span>` : ""}
+        </div>
+    `;
+}
+
+function timeToMinutes(time) {
+    const [hours, minutes] = String(time || "00:00").split(":").map(Number);
+    return (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0);
 }
 
 
@@ -2006,8 +2030,19 @@ function nextPeriod() {
 
 function handleDateClick(date, hour = null) {
 
+    // Clicking a date from the month view opens that date in the
+    // detailed hour-by-hour day view. Clicking an hour from the
+    // day/week view can create an event when Management is signed in.
+    if (hour === null) {
+        currentDate = new Date(`${date}T12:00:00`);
+        currentView = "day";
+        render();
+        return;
+    }
+
     if (!canManage()) return;
 
+    currentDate = new Date(`${date}T12:00:00`);
     openCreateEventModal(date, hour);
 }
 

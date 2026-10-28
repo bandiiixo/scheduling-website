@@ -1965,3 +1965,164 @@ textarea:focus {
         display: none;
     }
 }
+
+/* =========================================================
+   HOURLY DAY VIEW
+   ========================================================= */
+
+.day-calendar {
+    overflow: hidden;
+    border: 1px solid #252a32;
+    border-radius: 12px;
+    background: #0c0f14;
+    box-shadow: 0 20px 55px rgba(0,0,0,.24);
+}
+
+.day-header {
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 14px 20px;
+    border-bottom: 1px solid #252a32;
+    background: linear-gradient(90deg, rgba(209,0,47,.08), rgba(16,19,25,.98) 45%);
+}
+
+.day-header > div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.day-header-label {
+    color: #8b929d;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+}
+
+.day-header strong {
+    color: #f5f5f5;
+    font-size: 18px;
+    font-weight: 850;
+}
+
+.day-header-hint {
+    color: #6f7783;
+    font-size: 11px;
+}
+
+.day-timeline {
+    position: relative;
+    min-height: 1728px;
+}
+
+.day-hours {
+    position: relative;
+    z-index: 1;
+}
+
+.day-row {
+    display: grid;
+    grid-template-columns: 78px minmax(0, 1fr);
+    height: 72px;
+}
+
+.day-row:hover .day-cell {
+    background: rgba(209,0,47,.035);
+}
+
+.day-row .time-label {
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+    padding: 8px 12px 0 0;
+    color: #69727e;
+    font-size: 10px;
+    font-weight: 700;
+    border-right: 1px solid #252a32;
+    border-bottom: 1px solid #20242b;
+    background: #0b0e13;
+}
+
+.day-cell {
+    border-bottom: 1px solid #20242b;
+    background: #101319;
+    cursor: pointer;
+    transition: background 140ms ease;
+}
+
+.day-events-layer {
+    position: absolute;
+    z-index: 3;
+    top: 0;
+    right: 12px;
+    bottom: 0;
+    left: 90px;
+    pointer-events: none;
+}
+
+.day-timeline-event {
+    position: absolute;
+    right: 0;
+    left: 0;
+    pointer-events: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--event-colour) 48%, #ffffff 8%);
+    border-left: 4px solid var(--event-colour);
+    border-radius: 7px;
+    background: linear-gradient(100deg, color-mix(in srgb, var(--event-colour) 18%, #101319), rgba(16,19,25,.98));
+    box-shadow: 0 8px 22px rgba(0,0,0,.24);
+    cursor: pointer;
+    transition: transform 140ms ease, filter 140ms ease;
+}
+
+.day-timeline-event:hover {
+    transform: translateX(2px);
+    filter: brightness(1.08);
+}
+
+.day-timeline-event strong {
+    color: #fff;
+    font-size: 12px;
+    font-weight: 850;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.day-timeline-event span,
+.day-event-time {
+    color: #a9b0ba;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.day-event-time {
+    color: #e0e4e8;
+}
+
+@media (max-width: 650px) {
+    .day-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .day-timeline {
+        overflow-x: auto;
+    }
+
+    .day-hours {
+        min-width: 620px;
+    }
+
+    .day-events-layer {
+        min-width: 530px;
+    }
+}
