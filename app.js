@@ -7,6 +7,7 @@ const app = document.getElementById("app");
 let currentDate = new Date();
 let currentView = "month";
 let events = [];
+let eventRequests = [];
 let eventTypes = [];
 let staff = [];
 let currentUser = null;
@@ -27,6 +28,8 @@ async function init() {
         await loadEventTypes();
         await loadStaff();
         await loadEvents();
+        await loadAccess();
+        await loadEventRequests();
 
         render();
 
@@ -34,10 +37,9 @@ async function init() {
             currentUser = session?.user || null;
 
             await loadAccess();
+            await loadEventRequests();
             render();
         });
-
-        await loadAccess();
 
         setInterval(async () => {
             await loadEvents();
@@ -118,6 +120,33 @@ async function loadEvents() {
 }
 
 
+async function loadEventRequests() {
+    eventRequests = [];
+
+    if (!currentUser) return;
+
+    const { data, error } = await supabaseClient
+        .from("event_requests")
+        .select(`
+            *,
+            event_types (
+                id,
+                name,
+                colour,
+                description
+            )
+        `)
+        .order("created_at", { ascending: false });
+
+    if (error) {
+        console.error("Event requests failed to load:", error);
+        return;
+    }
+
+    eventRequests = data || [];
+}
+
+
 async function loadAccess() {
     currentAccess = null;
 
@@ -142,6 +171,11 @@ async function loadAccess() {
 function canManage() {
     return currentAccess &&
         ["manager", "admin"].includes(currentAccess.access_level);
+}
+
+
+function isStaff() {
+    return !!currentUser && currentAccess?.active === true;
 }
 
 
@@ -174,9 +208,14 @@ function render() {
     ${
         canManage()
             ? `
-                <span class="mode-badge staff-mode">
-                    STAFF MODE
+                <span class="mode-badge management-mode">
+                    MANAGEMENT
                 </span>
+
+                <button class="header-button request-header-button"
+                    onclick="openEventRequests()">
+                    Requests ${pendingRequestCount() ? `<span class="request-count">${pendingRequestCount()}</span>` : ""}
+                </button>
 
                 <button class="primary-button"
                     onclick="openCreateEventModal()">
@@ -188,16 +227,37 @@ function render() {
                     Logout
                 </button>
               `
-            : `
-                <span class="mode-badge player-mode">
-                    PLAYER VIEW
-                </span>
+            : isStaff()
+                ? `
+                    <span class="mode-badge staff-mode">
+                        STAFF ACCESS
+                    </span>
 
-                <button class="header-button"
-                    onclick="openLogin()">
-                    Staff Login
-                </button>
-              `
+                    <button class="primary-button"
+                        onclick="openCreateRequestModal()">
+                        + Submit Event Request
+                    </button>
+
+                    <button class="header-button"
+                        onclick="openMyRequests()">
+                        My Requests
+                    </button>
+
+                    <button class="header-button"
+                        onclick="logout()">
+                        Logout
+                    </button>
+                  `
+                : `
+                    <span class="mode-badge player-mode">
+                        PLAYER VIEW
+                    </span>
+
+                    <button class="header-button"
+                        onclick="openLogin()">
+                        Staff Login
+                    </button>
+                  `
     }
 
     <button class="header-button"
@@ -1163,6 +1223,340 @@ async function createEvent(event) {
 
 
 /* =========================================================
+   EVENT REQUESTS
+   ========================================================= */
+
+function pendingRequestCount() {
+    if (!canManage()) return 0;
+    return eventRequests.filter(request => request.status === "pending").length;
+}
+
+function requestStatusLabel(status) {
+    return {
+        pending: "Pending",
+        approved: "Approved",
+        rejected: "Rejected"
+    }[status] || status;
+}
+
+function requestStatusClass(status) {
+    return `request-status request-status-${status}`;
+}
+
+function openCreateRequestModal() {
+    if (!isStaff()) {
+        showLoginMessage();
+        return;
+    }
+
+    const defaultDate = formatDate(currentDate);
+
+    showModal(`
+        <div class="modal request-modal">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-eyebrow">Staff Submission</span>
+                    <h2>Submit Event Request</h2>
+                </div>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+
+            <div class="request-info-banner">
+                <strong>Management approval required</strong>
+                <span>This request will not appear on the public calendar until Management approves it.</span>
+            </div>
+
+            <form onsubmit="submitEventRequest(event)">
+                <div class="form-grid">
+                    <div class="form-field full">
+                        <label>Event title</label>
+                        <input id="requestTitle" required maxlength="120" placeholder="e.g. Legion BR">
+                    </div>
+
+                    <div class="form-field">
+                        <label>Event type</label>
+                        <select id="requestEventType" required>
+                            ${eventTypes.map(type => `
+                                <option value="${type.id}">${escapeHtml(type.name)}</option>
+                            `).join("")}
+                        </select>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Staff required</label>
+                        <input id="requestStaffRequired" type="number" min="0" max="100" value="0">
+                    </div>
+
+                    <div class="form-field">
+                        <label>Date</label>
+                        <input id="requestDate" type="date" value="${defaultDate}" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Start time</label>
+                        <input id="requestStart" type="time" value="19:00" required>
+                    </div>
+
+                    <div class="form-field">
+                        <label>End time</label>
+                        <input id="requestEnd" type="time" value="20:00" required>
+                    </div>
+
+                    <div class="form-field full">
+                        <label>Location</label>
+                        <input id="requestLocation" maxlength="200" placeholder="e.g. Legion Square">
+                    </div>
+
+                    <div class="form-field full">
+                        <label>Reason / event details</label>
+                        <textarea id="requestDescription" rows="5" maxlength="2000" placeholder="Tell Management what the event is for..."></textarea>
+                    </div>
+                </div>
+
+                <div id="requestFormError" class="form-error"></div>
+
+                <div class="modal-footer">
+                    <button type="button" class="secondary-button" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="primary-button">Submit Request</button>
+                </div>
+            </form>
+        </div>
+    `);
+}
+
+async function submitEventRequest(event) {
+    event.preventDefault();
+
+    const errorBox = document.getElementById("requestFormError");
+    errorBox.textContent = "";
+
+    const title = document.getElementById("requestTitle").value.trim();
+    const eventTypeId = document.getElementById("requestEventType").value;
+    const eventDate = document.getElementById("requestDate").value;
+    const startTime = document.getElementById("requestStart").value;
+    const endTime = document.getElementById("requestEnd").value;
+    const location = document.getElementById("requestLocation").value.trim();
+    const staffRequired = Math.max(0, parseInt(document.getElementById("requestStaffRequired").value, 10) || 0);
+    const description = document.getElementById("requestDescription").value.trim();
+
+    if (endTime <= startTime) {
+        errorBox.textContent = "End time must be later than start time.";
+        return;
+    }
+
+    const { error } = await supabaseClient
+        .from("event_requests")
+        .insert({
+            title,
+            event_type_id: eventTypeId,
+            event_date: eventDate,
+            start_time: startTime,
+            end_time: endTime,
+            location: location || null,
+            description: description || null,
+            staff_required: staffRequired,
+            submitted_by: currentUser.id,
+            status: "pending"
+        });
+
+    if (error) {
+        errorBox.textContent = error.message;
+        return;
+    }
+
+    await loadEventRequests();
+    closeModal();
+    openMyRequests();
+}
+
+function openMyRequests() {
+    if (!isStaff()) {
+        showLoginMessage();
+        return;
+    }
+
+    const requests = eventRequests;
+
+    showModal(`
+        <div class="modal request-list-modal">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-eyebrow">Staff Submissions</span>
+                    <h2>My Event Requests</h2>
+                </div>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+
+            <div class="request-list">
+                ${requests.length ? requests.map(renderRequestCard).join("") : `
+                    <div class="request-empty">
+                        <div class="request-empty-icon">◇</div>
+                        <strong>No requests yet</strong>
+                        <span>Submit an event request and it will appear here for Management to review.</span>
+                    </div>
+                `}
+            </div>
+
+            <div class="modal-footer">
+                <button class="secondary-button" onclick="closeModal()">Close</button>
+                <button class="primary-button" onclick="closeModal(); openCreateRequestModal()">+ New Request</button>
+            </div>
+        </div>
+    `);
+}
+
+function openEventRequests() {
+    if (!canManage()) return;
+
+    const pending = eventRequests.filter(request => request.status === "pending");
+    const reviewed = eventRequests.filter(request => request.status !== "pending");
+
+    showModal(`
+        <div class="modal request-list-modal management-request-modal">
+            <div class="modal-header">
+                <div>
+                    <span class="modal-eyebrow">Management</span>
+                    <h2>Event Requests</h2>
+                </div>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+
+            <div class="request-section-title">
+                <span>Awaiting Approval</span>
+                <strong>${pending.length}</strong>
+            </div>
+
+            <div class="request-list">
+                ${pending.length ? pending.map(renderManagementRequestCard).join("") : `
+                    <div class="request-empty compact">
+                        <strong>No pending requests</strong>
+                        <span>The city is suspiciously organised.</span>
+                    </div>
+                `}
+            </div>
+
+            ${reviewed.length ? `
+                <div class="request-section-title reviewed-title">
+                    <span>Recently Reviewed</span>
+                    <strong>${reviewed.length}</strong>
+                </div>
+                <div class="request-list reviewed-list">
+                    ${reviewed.slice(0, 10).map(renderRequestCard).join("")}
+                </div>
+            ` : ""}
+
+            <div class="modal-footer">
+                <button class="secondary-button" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    `);
+}
+
+function renderRequestCard(request) {
+    const colour = request.event_types?.colour || "#d1002f";
+
+    return `
+        <div class="request-card" style="--request-colour:${colour}">
+            <div class="request-card-main">
+                <div class="request-card-topline">
+                    <span class="request-type">${escapeHtml(request.event_types?.name || "Event")}</span>
+                    <span class="${requestStatusClass(request.status)}">${requestStatusLabel(request.status)}</span>
+                </div>
+                <h3>${escapeHtml(request.title)}</h3>
+                <div class="request-meta">
+                    <span>📅 ${formatDisplayDate(request.event_date)}</span>
+                    <span>⏰ ${formatTime(request.start_time)} - ${formatTime(request.end_time)}</span>
+                    ${request.location ? `<span>📍 ${escapeHtml(request.location)}</span>` : ""}
+                    ${request.staff_required > 0 ? `<span>👥 ${request.staff_required} staff</span>` : ""}
+                </div>
+                ${request.description ? `<p>${escapeHtml(request.description).replace(/\n/g, "<br>")}</p>` : ""}
+            </div>
+        </div>
+    `;
+}
+
+function renderManagementRequestCard(request) {
+    const colour = request.event_types?.colour || "#d1002f";
+
+    return `
+        <div class="request-card management-request-card" style="--request-colour:${colour}">
+            <div class="request-card-main">
+                <div class="request-card-topline">
+                    <span class="request-type">${escapeHtml(request.event_types?.name || "Event")}</span>
+                    <span class="request-status request-status-pending">Pending approval</span>
+                </div>
+                <h3>${escapeHtml(request.title)}</h3>
+                <div class="request-meta">
+                    <span>📅 ${formatDisplayDate(request.event_date)}</span>
+                    <span>⏰ ${formatTime(request.start_time)} - ${formatTime(request.end_time)}</span>
+                    ${request.location ? `<span>📍 ${escapeHtml(request.location)}</span>` : ""}
+                    ${request.staff_required > 0 ? `<span>👥 ${request.staff_required} staff</span>` : ""}
+                </div>
+                ${request.description ? `<p>${escapeHtml(request.description).replace(/\n/g, "<br>")}</p>` : ""}
+            </div>
+            <div class="request-actions">
+                <button class="danger-button" onclick="rejectEventRequest('${request.id}')">Reject</button>
+                <button class="primary-button" onclick="approveEventRequest('${request.id}')">Approve</button>
+            </div>
+        </div>
+    `;
+}
+
+async function approveEventRequest(requestId) {
+    if (!canManage()) return;
+
+    const request = eventRequests.find(item => item.id === requestId);
+    if (!request || request.status !== "pending") return;
+
+    if (!confirm(`Approve "${request.title}" and add it to the public calendar?`)) return;
+
+    const { error } = await supabaseClient.rpc("approve_event_request", {
+        p_request_id: requestId
+    });
+
+    if (error) {
+        alert(error.message);
+        return;
+    }
+
+    await loadEvents();
+    await loadEventRequests();
+    render();
+    openEventRequests();
+}
+
+async function rejectEventRequest(requestId) {
+    if (!canManage()) return;
+
+    const request = eventRequests.find(item => item.id === requestId);
+    if (!request || request.status !== "pending") return;
+
+    const reason = prompt("Optional rejection reason:", "");
+    if (reason === null) return;
+
+    const { error } = await supabaseClient
+        .from("event_requests")
+        .update({
+            status: "rejected",
+            management_notes: reason.trim() || null,
+            reviewed_by: currentUser.id,
+            reviewed_at: new Date().toISOString()
+        })
+        .eq("id", requestId)
+        .eq("status", "pending");
+
+    if (error) {
+        alert(error.message);
+        return;
+    }
+
+    await loadEventRequests();
+    render();
+    openEventRequests();
+}
+
+
+/* =========================================================
    EVENT DETAILS
    ========================================================= */
 
@@ -2122,8 +2516,7 @@ function showLoginMessage() {
             </div>
 
             <p class="modal-message">
-                Viewing the schedule is public, but creating
-                and managing events requires staff access.
+                Viewing the schedule is public, but submitting or managing events requires staff access.
             </p>
 
             <div class="modal-footer">
