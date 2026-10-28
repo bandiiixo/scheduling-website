@@ -229,7 +229,7 @@ button:disabled {
 }
 
 .schedule-main {
-    width: min(1500px, calc(100% - 40px));
+    width: min(1700px, calc(100% - 32px));
     margin: 0 auto;
     padding: 26px 0 50px;
 }
@@ -479,14 +479,14 @@ button:disabled {
     box-shadow: var(--shadow);
 }
 
-/* The week is intentionally treated as seven soft panels rather than
-   one giant spreadsheet. It keeps the grid professional without making
-   every column look like a prison cell. */
+/* Week grid: one shared column system for the header and timeline.
+   This keeps every day exactly the same width and prevents the scrollbar
+   from making the header/body subtly disagree. */
 .week-header {
     display: grid;
-    grid-template-columns: 54px repeat(7, minmax(0, 1fr));
-    column-gap: 6px;
-    padding: 0 6px 0 0;
+    grid-template-columns: 58px repeat(7, minmax(0, 1fr));
+    column-gap: 8px;
+    padding: 0 8px 0 0;
     border-bottom: 1px solid var(--line-strong);
     background: #080e17;
 }
@@ -545,8 +545,9 @@ button:disabled {
 .week-body {
     overflow: auto;
     max-height: calc(100vh - 205px);
-    padding: 6px 6px 8px 0;
+    padding: 6px 8px 8px 0;
     scrollbar-width: thin;
+    scrollbar-gutter: stable;
     scrollbar-color: #263447 transparent;
 }
 
@@ -573,13 +574,15 @@ button:disabled {
 
 .week-row {
     display: grid;
-    grid-template-columns: 54px repeat(7, minmax(0, 1fr));
-    column-gap: 6px;
+    grid-template-columns: 58px repeat(7, minmax(0, 1fr));
+    column-gap: 8px;
     min-height: 58px;
 }
 
 .time-label {
     padding: 10px 8px 0 0;
+    width: 58px;
+    box-sizing: border-box;
     color: #5f7895;
     border-right: 0;
     background: transparent;
