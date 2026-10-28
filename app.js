@@ -1189,16 +1189,15 @@ async function createEvent(event) {
     .insert({
         title,
         event_type_id: eventTypeId,
-        event_date: date,
-        start_time: start,
-        end_time: end,
+        event_date: eventDate,
+        start_time: startTime,
+        end_time: endTime,
         location: location || null,
         description: description || null,
         staff_required: staffRequired,
         created_by: currentUser?.id || null,
         updated_by: currentUser?.id || null
     });
-
 
     if (error) {
 
@@ -2038,18 +2037,19 @@ async function updateEvent(formEvent, eventId) {
 
 
     const { error } = await supabaseClient
-        .from("events")
-        .update({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            updated_by: currentUser?.id || null
-        })
+    .from("events")
+    .insert({
+        title,
+        event_type_id: eventTypeId,
+        event_date: eventDate,
+        start_time: startTime,
+        end_time: endTime,
+        location: location || null,
+        description: description || null,
+        staff_required: staffRequired,
+        created_by: currentUser?.id || null,
+        updated_by: currentUser?.id || null
+    });
         .eq("id", eventId);
 
 
