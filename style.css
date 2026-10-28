@@ -1400,43 +1400,30 @@ body.modal-open {
     }
 }
 
-/* =========================================================
-   WEEK VIEW ALIGNMENT FIX
-   Keep the day header grid exactly the same width as the
-   scrollable grid below it. The vertical scrollbar otherwise
-   steals width from the body and makes the columns drift.
-   ========================================================= */
 
+
+/* =========================================================
+   WEEK VIEW: OVERLAY SCROLLING
+   Keep the seven day columns exactly equal. The native
+   scrollbar is hidden so it cannot steal horizontal width
+   from the schedule grid. Mouse wheel / trackpad scrolling
+   remains fully functional.
+   ========================================================= */
 .week-header {
     box-sizing: border-box;
     width: 100%;
-    padding-right: 10px;
+    padding-right: 0;
 }
 
 .week-body {
-    overflow-y: scroll;
+    overflow-y: auto;
     overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
 .week-body::-webkit-scrollbar {
-    width: 10px;
-}
-
-.week-body::-webkit-scrollbar-track {
-    background: #080e17;
-}
-
-.week-body::-webkit-scrollbar-thumb {
-    background: #273548;
-    border-radius: 999px;
-    border: 2px solid #080e17;
-}
-
-.week-body::-webkit-scrollbar-thumb:hover {
-    background: #3a4c63;
-}
-
-.week-body {
-    scrollbar-width: auto;
-    scrollbar-color: #273548 #080e17;
+    width: 0;
+    height: 0;
+    display: none;
 }
