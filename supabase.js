@@ -4,8 +4,8 @@
 // The publishable/anon key is safe to ship to the browser.
 // Never put a Supabase service-role/secret key in this file.
 
-const SUPABASE_URL = 'PASTE_YOUR_KNG_SCHEDULE_SUPABASE_URL_HERE';
-const SUPABASE_PUBLISHABLE_KEY = 'PASTE_YOUR_KNG_SCHEDULE_PUBLISHABLE_KEY_HERE';
+const SUPABASE_URL = 'https://okjqasuwcvrumvyakulo.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_fEAgFfwXMWSDjA2T0UO-aQ_5ZY5ChLn';
 
 const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,
