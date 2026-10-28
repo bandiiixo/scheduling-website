@@ -1,8 +1,11 @@
-// KNG Staff Portal - Supabase client configuration.
+// KNG Schedule - Supabase client configuration.
+// IMPORTANT: use the NEW KNG SCHEDULE Supabase project here.
+// Do NOT use the KNG Staff Portal project.
 // The publishable/anon key is safe to ship to the browser.
-// Database security is enforced by Supabase RLS and server-side functions.
-const SUPABASE_URL = 'https://okjqasuwcvrumvyakulo.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_fEAgFfwXMWSDjA2T0UO-aQ_5ZY5ChLn';
+// Never put a Supabase service-role/secret key in this file.
+
+const SUPABASE_URL = 'PASTE_YOUR_KNG_SCHEDULE_SUPABASE_URL_HERE';
+const SUPABASE_PUBLISHABLE_KEY = 'PASTE_YOUR_KNG_SCHEDULE_PUBLISHABLE_KEY_HERE';
 
 const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,

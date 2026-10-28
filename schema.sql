@@ -1,206 +1,291 @@
--- KNG Staff Portal: application tables for tasks, FAQs, Discord slots and audit history.
--- Run this AFTER the core KNG account/team/access-key SQL already created in Supabase.
+-- KNG SCHEDULE DATABASE
 
-create table if not exists public.tasks (
+create extension if not exists "pgcrypto";
+
+create table if not exists public.event_types (
     id uuid primary key default gen_random_uuid(),
-    team_name text not null references public.teams(name) on update cascade,
-    title text not null,
+    name text not null unique,
+    colour text not null,
     description text,
-    active boolean not null default true,
-    created_by uuid references auth.users(id),
     created_at timestamptz not null default now()
 );
 
-create table if not exists public.task_logs (
+insert into public.event_types (name, colour, description)
+values
+    ('Meeting', '#3b82f6', 'General meeting'),
+    ('BR', '#8b5cf6', 'Business robbery'),
+    ('F3', '#f59e0b', 'F3 event'),
+    ('Large Action', '#ef4444', 'Large-scale city action'),
+    ('Staff Meeting', '#22c55e', 'KNG staff meeting')
+on conflict (name) do nothing;
+
+create table if not exists public.staff (
     id uuid primary key default gen_random_uuid(),
-    task_id uuid not null references public.tasks(id) on delete cascade,
-    user_id uuid not null references auth.users(id) on delete cascade,
-    team_name text not null references public.teams(name) on update cascade,
-    task_title text not null,
-    completed_at timestamptz not null default now()
+    name text not null,
+    discord_id text unique,
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
 );
 
-create table if not exists public.faqs (
+create table if not exists public.staff_access (
     id uuid primary key default gen_random_uuid(),
-    team_name text not null references public.teams(name) on update cascade,
+    user_id uuid not null unique references auth.users(id) on delete cascade,
+    access_level text not null default 'viewer'
+        check (access_level in ('viewer', 'manager', 'admin')),
+    active boolean not null default true,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create table if not exists public.events (
+    id uuid primary key default gen_random_uuid(),
     title text not null,
-    body text not null,
-    active boolean not null default true,
-    created_by uuid references auth.users(id),
-    created_at timestamptz not null default now()
-);
-
-create table if not exists public.discord_slots (
-    id uuid primary key default gen_random_uuid(),
-    slot_date date not null,
+    event_type_id uuid not null
+        references public.event_types(id)
+        on delete restrict,
+    event_date date not null,
     start_time time not null,
     end_time time not null,
-    user_id uuid references auth.users(id) on delete set null,
-    booked_at timestamptz,
+    location text,
+    description text,
+    staff_required integer not null default 0
+        check (staff_required >= 0),
+    created_by uuid references auth.users(id) on delete set null,
+    updated_by uuid references auth.users(id) on delete set null,
     created_at timestamptz not null default now(),
-    unique (slot_date, start_time)
+    updated_at timestamptz not null default now(),
+    constraint valid_event_time
+        check (end_time > start_time)
 );
 
-create table if not exists public.staff_audit_log (
+create table if not exists public.event_staff (
     id uuid primary key default gen_random_uuid(),
-    actor_user_id uuid references auth.users(id) on delete set null,
-    target_user_id uuid references auth.users(id) on delete set null,
+    event_id uuid not null
+        references public.events(id)
+        on delete cascade,
+    staff_id uuid not null
+        references public.staff(id)
+        on delete cascade,
+    role text default 'Staff',
+    allocated_by uuid references auth.users(id) on delete set null,
+    allocated_at timestamptz not null default now(),
+    unique(event_id, staff_id)
+);
+
+create table if not exists public.audit_log (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid references auth.users(id) on delete set null,
     action text not null,
-    details jsonb not null default '{}'::jsonb,
+    entity_type text not null,
+    entity_id uuid,
+    details jsonb,
     created_at timestamptz not null default now()
 );
 
-create index if not exists idx_tasks_team_active on public.tasks(team_name, active);
-create index if not exists idx_task_logs_team_completed on public.task_logs(team_name, completed_at desc);
-create index if not exists idx_task_logs_user_completed on public.task_logs(user_id, completed_at desc);
-create index if not exists idx_faqs_team_active on public.faqs(team_name, active);
-create index if not exists idx_discord_slots_date on public.discord_slots(slot_date, start_time);
+create or replace function public.update_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$;
 
-alter table public.tasks enable row level security;
-alter table public.task_logs enable row level security;
-alter table public.faqs enable row level security;
-alter table public.discord_slots enable row level security;
-alter table public.staff_audit_log enable row level security;
+drop trigger if exists update_staff_updated_at on public.staff;
+create trigger update_staff_updated_at
+before update on public.staff
+for each row
+execute function public.update_updated_at();
 
--- TASKS
-create policy "Active team members can view team tasks"
-on public.tasks for select to authenticated
-using (
-    active = true
-    and exists (
-        select 1 from public.team_memberships tm
-        where tm.user_id = auth.uid()
-          and tm.status = 'active'
-          and tm.rank is not null
-          and tm.team_id = (select id from public.teams where name = tasks.team_name limit 1)
-    )
-);
+drop trigger if exists update_staff_access_updated_at on public.staff_access;
+create trigger update_staff_access_updated_at
+before update on public.staff_access
+for each row
+execute function public.update_updated_at();
 
-create policy "Team managers can manage tasks"
-on public.tasks for all to authenticated
-using (public.can_manage_team(team_name))
-with check (public.can_manage_team(team_name));
+drop trigger if exists update_events_updated_at on public.events;
+create trigger update_events_updated_at
+before update on public.events
+for each row
+execute function public.update_updated_at();
 
--- TASK LOGS
-create policy "Users can view own task logs"
-on public.task_logs for select to authenticated
-using (user_id = auth.uid());
-
-create policy "Team managers can view team task logs"
-on public.task_logs for select to authenticated
-using (public.can_manage_team(team_name));
-
-create policy "Users can insert own task logs"
-on public.task_logs for insert to authenticated
-with check (
-    user_id = auth.uid()
-    and exists (
-        select 1 from public.team_memberships tm
-        join public.teams t on t.id = tm.team_id
-        where tm.user_id = auth.uid()
-          and tm.status = 'active'
-          and t.name = task_logs.team_name
-          and t.active = true
-    )
-);
-
-create policy "Users can delete own task logs"
-on public.task_logs for delete to authenticated
-using (user_id = auth.uid());
-
--- FAQS
-create policy "Team members can view active FAQs"
-on public.faqs for select to authenticated
-using (
-    active = true
-    and exists (
-        select 1 from public.team_memberships tm
-        join public.teams t on t.id = tm.team_id
-        where tm.user_id = auth.uid()
-          and tm.status = 'active'
-          and t.name = faqs.team_name
-          and t.active = true
-    )
-);
-
-create policy "Team managers can manage FAQs"
-on public.faqs for all to authenticated
-using (public.can_manage_team(team_name))
-with check (public.can_manage_team(team_name));
-
--- DISCORD SLOTS
-create policy "Discord members can view slots"
-on public.discord_slots for select to authenticated
-using (
-    exists (
-        select 1 from public.team_memberships tm
-        join public.teams t on t.id = tm.team_id
-        where tm.user_id = auth.uid()
-          and tm.status = 'active'
-          and t.name = 'Discord'
-          and t.active = true
-    )
-);
-
-create policy "Discord members can book free slots"
-on public.discord_slots for update to authenticated
-using (
-    user_id is null
-    and exists (
-        select 1 from public.team_memberships tm
-        join public.teams t on t.id = tm.team_id
-        where tm.user_id = auth.uid()
-          and tm.status = 'active'
-          and t.name = 'Discord'
-          and t.active = true
-    )
+create or replace function public.has_schedule_access(
+    required_level text default 'manager'
 )
-with check (user_id = auth.uid());
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    current_level text;
+begin
+    select access_level
+    into current_level
+    from public.staff_access
+    where user_id = auth.uid()
+      and active = true;
 
-create policy "Discord members can cancel own slots"
-on public.discord_slots for update to authenticated
-using (user_id = auth.uid())
-with check (user_id is null or user_id = auth.uid());
+    if current_level is null then
+        return false;
+    end if;
 
-create policy "Discord managers can manage slots"
-on public.discord_slots for all to authenticated
-using (public.can_manage_team('Discord'))
-with check (public.can_manage_team('Discord'));
+    if required_level = 'viewer' then
+        return true;
+    end if;
 
--- AUDIT LOG
+    if required_level = 'manager' then
+        return current_level in ('manager', 'admin');
+    end if;
+
+    if required_level = 'admin' then
+        return current_level = 'admin';
+    end if;
+
+    return false;
+end;
+$$;
+
+alter table public.event_types enable row level security;
+alter table public.staff enable row level security;
+alter table public.staff_access enable row level security;
+alter table public.events enable row level security;
+alter table public.event_staff enable row level security;
+alter table public.audit_log enable row level security;
+
+drop policy if exists "Anyone can view event types" on public.event_types;
+create policy "Anyone can view event types"
+on public.event_types
+for select
+using (true);
+
+drop policy if exists "Admins can manage event types" on public.event_types;
+create policy "Admins can manage event types"
+on public.event_types
+for all
+using (public.has_schedule_access('admin'))
+with check (public.has_schedule_access('admin'));
+
+drop policy if exists "Anyone can view active staff" on public.staff;
+create policy "Anyone can view active staff"
+on public.staff
+for select
+using (active = true);
+
+drop policy if exists "Managers can create staff" on public.staff;
+create policy "Managers can create staff"
+on public.staff
+for insert
+with check (public.has_schedule_access('manager'));
+
+drop policy if exists "Managers can update staff" on public.staff;
+create policy "Managers can update staff"
+on public.staff
+for update
+using (public.has_schedule_access('manager'))
+with check (public.has_schedule_access('manager'));
+
+drop policy if exists "Admins can delete staff" on public.staff;
+create policy "Admins can delete staff"
+on public.staff
+for delete
+using (public.has_schedule_access('admin'));
+
+drop policy if exists "Users can view their own access" on public.staff_access;
+create policy "Users can view their own access"
+on public.staff_access
+for select
+using (
+    user_id = auth.uid()
+    or public.has_schedule_access('admin')
+);
+
+drop policy if exists "Admins can create access" on public.staff_access;
+create policy "Admins can create access"
+on public.staff_access
+for insert
+with check (public.has_schedule_access('admin'));
+
+drop policy if exists "Admins can update access" on public.staff_access;
+create policy "Admins can update access"
+on public.staff_access
+for update
+using (public.has_schedule_access('admin'));
+
+drop policy if exists "Admins can delete access" on public.staff_access;
+create policy "Admins can delete access"
+on public.staff_access
+for delete
+using (public.has_schedule_access('admin'));
+
+drop policy if exists "Anyone can view events" on public.events;
+create policy "Anyone can view events"
+on public.events
+for select
+using (true);
+
+drop policy if exists "Managers can create events" on public.events;
+create policy "Managers can create events"
+on public.events
+for insert
+with check (public.has_schedule_access('manager'));
+
+drop policy if exists "Managers can update events" on public.events;
+create policy "Managers can update events"
+on public.events
+for update
+using (public.has_schedule_access('manager'));
+
+drop policy if exists "Managers can delete events" on public.events;
+create policy "Managers can delete events"
+on public.events
+for delete
+using (public.has_schedule_access('manager'));
+
+drop policy if exists "Anyone can view event allocations" on public.event_staff;
+create policy "Anyone can view event allocations"
+on public.event_staff
+for select
+using (true);
+
+drop policy if exists "Managers can allocate staff" on public.event_staff;
+create policy "Managers can allocate staff"
+on public.event_staff
+for insert
+with check (public.has_schedule_access('manager'));
+
+drop policy if exists "Managers can change allocations" on public.event_staff;
+create policy "Managers can change allocations"
+on public.event_staff
+for update
+using (public.has_schedule_access('manager'))
+with check (public.has_schedule_access('manager'));
+
+drop policy if exists "Managers can remove allocations" on public.event_staff;
+create policy "Managers can remove allocations"
+on public.event_staff
+for delete
+using (public.has_schedule_access('manager'));
+
+drop policy if exists "Admins can view audit log" on public.audit_log;
 create policy "Admins can view audit log"
-on public.staff_audit_log for select to authenticated
-using (public.is_admin());
+on public.audit_log
+for select
+using (public.has_schedule_access('admin'));
 
-create policy "Admins can write audit log"
-on public.staff_audit_log for insert to authenticated
-with check (public.is_admin());
+drop policy if exists "Authenticated users can create audit entries" on public.audit_log;
+create policy "Authenticated users can create audit entries"
+on public.audit_log
+for insert
+with check (auth.uid() is not null);
 
--- Seed basic tasks/FAQs for the three KNG teams.
-insert into public.tasks (team_name,title,description)
-select x.team_name, x.title, x.description
-from (values
-    ('Administration & Staff Operations','Complete daily staff review','Review current staff activity and outstanding administration items.'),
-    ('Administration & Staff Operations','Review pending accounts','Check new account applications awaiting approval.'),
-    ('Knowledge','Complete daily team check','Complete the daily Knowledge team review.'),
-    ('Knowledge','Review assigned reports','Review assigned Knowledge work and record completion.'),
-    ('Knowledge','Update team tracker','Keep current Knowledge activity and work records up to date.'),
-    ('Discord','Complete shift handover','Review the previous Discord team handover.'),
-    ('Discord','Check Discord queue','Review the current Discord workload and outstanding actions.'),
-    ('Discord','Complete hourly activity check','Complete the hourly Discord team activity check.')
-) as x(team_name,title,description)
-where exists (select 1 from public.teams t where t.name=x.team_name)
-  and not exists (select 1 from public.tasks t where t.team_name=x.team_name and t.title=x.title);
-
-insert into public.faqs (team_name,title,body)
-select x.team_name,x.title,x.body
-from (values
-    ('Administration & Staff Operations','What is this portal for?','The portal manages KNG staff accounts, team memberships, tasks, FAQs and staff monitoring.'),
-    ('Administration & Staff Operations','Who can approve accounts?','Administration & Staff Operations ADM members can approve or reject new staff applications.'),
-    ('Knowledge','What counts as a completed task?','A task is complete when the required work has actually been carried out and recorded in the portal.'),
-    ('Knowledge','Where do I see my assignments?','Open My tasks to see the tasks configured for your active Knowledge membership.'),
-    ('Discord','How do Discord shifts work?','Discord team members can book available hourly slots in the Discord team workspace.'),
-    ('Discord','Can I book multiple slots?','A member can book an available slot. Additional booking rules can be tightened by Discord management later.')
-) as x(team_name,title,body)
-where exists (select 1 from public.teams t where t.name=x.team_name)
-  and not exists (select 1 from public.faqs f where f.team_name=x.team_name and f.title=x.title);
+create index if not exists idx_events_date on public.events(event_date);
+create index if not exists idx_events_type on public.events(event_type_id);
+create index if not exists idx_event_staff_event on public.event_staff(event_id);
+create index if not exists idx_event_staff_staff on public.event_staff(staff_id);
+create index if not exists idx_staff_active on public.staff(active);
+create index if not exists idx_audit_log_created on public.audit_log(created_at desc);

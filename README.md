@@ -1,6 +1,6 @@
-# KNG Staff Portal
+# KNG Schedule
 
-Private KNG staff monitoring portal built as a static frontend with Supabase Auth and database/RLS.
+Standalone KNG event scheduling website for public/player viewing and authorised staff management.
 
 ## Stack
 - Static HTML/CSS/JavaScript
@@ -8,22 +8,24 @@ Private KNG staff monitoring portal built as a static frontend with Supabase Aut
 - Supabase Postgres + RLS
 - Render Static Site
 
-## Frontend files
+## Files
 - `index.html` - app shell
-- `style.css` - KNG portal styling
-- `app.js` - portal UI and Supabase workflows
-- `supabase.js` - public Supabase project configuration
+- `style.css` - KNG Schedule styling
+- `app.js` - calendar, events, staff allocation and login workflows
+- `supabase.js` - KNG Schedule Supabase project configuration
+- `schema.sql` - database tables, starter event types and RLS policies
 
-## Important
-The Supabase publishable/anon key is intentionally client-side. Never put a Supabase service-role/secret key in this repository.
-
-The current portal expects the account, team, membership, access-key and review functions/tables created in Supabase.
+## Modes
+- Public/player view requires no login.
+- Manager/admin staff can create, edit, delete and allocate event staff.
+- Supabase RLS protects management operations. Hiding buttons is not the security layer.
 
 ## Deployment on Render
-Create a Static Site from this GitHub repository.
+Create a separate Static Site from the KNG Schedule GitHub repository.
 - Build command: leave blank
 - Publish directory: `.`
 - Auto-deploy: enabled
 
-## Database migration
-`schema.sql` adds the portal's task, task log, FAQ, Discord slot and audit tables plus their RLS policies and starter content.
+## Important
+This site must use its own Supabase project. Do not point `supabase.js` at the KNG Staff Portal project.
+Never put a Supabase service-role/secret key in this repository.
