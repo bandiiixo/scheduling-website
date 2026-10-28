@@ -1504,12 +1504,55 @@ async function approveEventRequest(requestId) {
 
     if (!confirm(`Approve "${request.title}" and add it to the public calendar?`)) return;
 
-    const { error } = await supabaseClient.rpc("approve_event_request", {
-        p_request_id: requestId
-    });
+    // Turn the approved request into a real calendar event.
+    // We do this here rather than relying on a database RPC so the
+    // approval button directly creates the event the calendar reads.
+    const { data: createdEvent, error: eventError } = await supabaseClient
+        .from("events")
+        .insert({
+            title: request.title,
+            event_type_id: request.event_type_id,
+            event_date: request.event_date,
+            start_time: request.start_time,
+            end_time: request.end_time,
+            location: request.location || null,
+            description: request.description || null,
+            staff_required: Number(request.staff_required || 0),
+            created_by: currentUser?.id || null,
+            updated_by: currentUser?.id || null
+        })
+        .select("id")
+        .single();
 
-    if (error) {
-        alert(error.message);
+    if (eventError) {
+        console.error("Failed to create approved event:", eventError);
+        alert(`The request could not be added to the calendar.\n\n${eventError.message}`);
+        return;
+    }
+
+    // Only mark the request approved after the calendar event exists.
+    const { error: requestError } = await supabaseClient
+        .from("event_requests")
+        .update({
+            status: "approved",
+            management_notes: "Approved and added to the calendar.",
+            reviewed_by: currentUser?.id || null,
+            reviewed_at: new Date().toISOString()
+        })
+        .eq("id", requestId)
+        .eq("status", "pending");
+
+    if (requestError) {
+        console.error("Failed to mark request approved:", requestError);
+
+        // Roll the calendar event back so we do not create a ghost event
+        // when the request status update fails.
+        await supabaseClient
+            .from("events")
+            .delete()
+            .eq("id", createdEvent.id);
+
+        alert(`The event was created but the request could not be approved.\n\n${requestError.message}`);
         return;
     }
 
