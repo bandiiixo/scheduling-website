@@ -528,13 +528,36 @@ button:disabled {
 
 .week-body {
     overflow: auto;
-    max-height: calc(100vh - 210px);
+    max-height: calc(100vh - 205px);
+    scrollbar-width: thin;
+    scrollbar-color: #263447 transparent;
+}
+
+.week-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.week-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.week-body::-webkit-scrollbar-thumb {
+    background: #263447;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.week-body::-webkit-scrollbar-thumb:hover {
+    background: #3a4b61;
+    background-clip: padding-box;
 }
 
 .week-row {
     display: grid;
     grid-template-columns: 64px repeat(7, minmax(0, 1fr));
-    min-height: 72px;
+    min-height: 54px;
 }
 
 .week-row:not(:last-child) > * {
@@ -569,7 +592,7 @@ button:disabled {
 }
 
 .week-cell .calendar-event {
-    height: 62px;
+    height: 46px;
 }
 
 /* =========================================================
