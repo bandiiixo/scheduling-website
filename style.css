@@ -1418,10 +1418,13 @@ body.modal-open {
 }
 
 .week-body {
+    width: 100%;
+    box-sizing: border-box;
     overflow-y: auto;
     overflow-x: hidden;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    scrollbar-gutter: auto !important;
 }
 
 .week-body::-webkit-scrollbar {
@@ -1725,4 +1728,157 @@ body {
 .requests-list::-webkit-scrollbar-thumb:hover,
 .staff-list::-webkit-scrollbar-thumb:hover {
     background: #ff3154;
+}
+
+
+/* =========================================================
+   KNG POLISH PASS - richer calendar without losing the
+   professional dark/red aesthetic
+   ========================================================= */
+
+/* Give the calendar a little more depth against the new background. */
+.month-calendar,
+.week-calendar,
+.day-calendar {
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+/* Subtle alternating warmth so the month grid feels less flat. */
+.month-cell:nth-child(7n + 6),
+.month-cell:nth-child(7n) {
+    background: linear-gradient(145deg, rgba(20, 10, 18, .82), rgba(9, 14, 22, .96));
+}
+
+.month-cell:nth-child(7n + 6):hover,
+.month-cell:nth-child(7n):hover {
+    background: linear-gradient(145deg, rgba(46, 10, 24, .78), rgba(14, 17, 26, .98));
+}
+
+/* Date numbers get a cleaner branded treatment. */
+.month-day-number {
+    transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.month-cell:hover .month-day-number {
+    transform: translateY(-1px);
+    background: rgba(255, 36, 72, .10);
+    box-shadow: 0 0 12px rgba(255, 36, 72, .08);
+}
+
+.month-cell.outside-month .month-day-number {
+    opacity: .48;
+}
+
+/* Today gets a deliberate, premium-looking edge rather than just a red wash. */
+.month-cell.today {
+    position: relative;
+    overflow: hidden;
+    border-top-color: rgba(255, 36, 72, .42);
+}
+
+.month-cell.today::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 76, 103, .72), transparent);
+    box-shadow: 0 0 14px rgba(255, 36, 72, .35);
+    pointer-events: none;
+}
+
+/* Event cards are now the little stars of the calendar. */
+.calendar-event {
+    border-color: color-mix(in srgb, var(--event-colour) 42%, rgba(255,255,255,.06));
+    border-left-width: 4px;
+    padding: 6px 8px 7px 8px;
+    background:
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--event-colour) 17%, #0b111a),
+            color-mix(in srgb, var(--event-colour) 5%, #0b111a));
+    box-shadow:
+        0 5px 16px rgba(0,0,0,.22),
+        0 0 0 1px rgba(255,255,255,.018) inset;
+}
+
+.calendar-event::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 46%;
+    height: 1px;
+    background: linear-gradient(90deg, var(--event-colour), transparent);
+    opacity: .9;
+}
+
+.calendar-event:hover {
+    transform: translateY(-2px) scale(1.006);
+    border-color: color-mix(in srgb, var(--event-colour) 58%, rgba(255,255,255,.10));
+    background:
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--event-colour) 23%, #0d131d),
+            color-mix(in srgb, var(--event-colour) 8%, #0d131d));
+    box-shadow:
+        0 9px 24px rgba(0,0,0,.30),
+        0 0 18px color-mix(in srgb, var(--event-colour) 14%, transparent);
+}
+
+.calendar-event .event-time {
+    color: color-mix(in srgb, var(--event-colour) 72%, #eaf0f5);
+}
+
+.calendar-event strong {
+    letter-spacing: .01em;
+}
+
+/* Week/day event blocks get the same visual language. */
+.week-cell .calendar-event,
+.day-cell .day-timeline-event {
+    box-shadow:
+        0 7px 20px rgba(0,0,0,.22),
+        0 0 0 1px rgba(255,255,255,.015) inset;
+}
+
+.week-cell .calendar-event:hover,
+.day-timeline-event:hover {
+    transform: translateY(-1px);
+    box-shadow:
+        0 10px 24px rgba(0,0,0,.28),
+        0 0 18px color-mix(in srgb, var(--event-colour) 14%, transparent);
+}
+
+/* Give empty calendar space a barely-visible red ambient glow. */
+.month-calendar::after,
+.week-calendar::after,
+.day-calendar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(circle at 50% 0%, rgba(255,20,68,.035), transparent 38%);
+}
+
+/* Keep the added overlay behind all calendar content. */
+.month-calendar > *,
+.week-calendar > *,
+.day-calendar > * {
+    position: relative;
+    z-index: 1;
+}
+
+/* Slightly richer active navigation without making it loud. */
+.view-switcher button {
+    transition: background .18s ease, color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.view-switcher button.active:hover {
+    transform: translateY(-1px);
+    box-shadow:
+        0 7px 20px rgba(255,20,68,.30),
+        0 0 22px rgba(255,20,68,.14),
+        inset 0 0 0 1px rgba(255,255,255,.10);
 }
