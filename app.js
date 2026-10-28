@@ -1140,7 +1140,7 @@ async function createEvent(event) {
     const errorBox =
         document.getElementById("eventFormError");
 
-    if (errorBox) errorBox.textContent = "";
+    errorBox.textContent = "";
 
     const title =
         document.getElementById("eventTitle").value.trim();
@@ -1162,64 +1162,29 @@ async function createEvent(event) {
 
     const staffRequired =
         parseInt(
-            document.getElementById("eventStaffRequired").value,
-            10
+            document.getElementById(
+                "eventStaffRequired"
+            ).value
         ) || 0;
 
     const description =
-        document.getElementById("eventDescription").value.trim();
+        document.getElementById(
+            "eventDescription"
+        ).value.trim();
 
-    if (!title) {
-        if (errorBox) errorBox.textContent = "Event title is required.";
+    if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
+        errorBox.textContent =
+            "Please complete all required fields.";
         return;
     }
 
-    if (!eventDate) {
-        if (errorBox) errorBox.textContent = "Event date is required.";
+    if (endTime <= startTime) {
+        errorBox.textContent =
+            "End time must be later than start time.";
         return;
     }
 
-    if (!startTime || !endTime || endTime <= startTime) {
-        if (errorBox) {
-            errorBox.textContent =
-                "End time must be later than start time.";
-        }
-        return;
-    }
-
-    // Insert the row only. Do not ask Supabase to immediately perform a
-    // nested relational SELECT here. The event itself is what matters, and
-    // a secondary relationship query should never make a successful INSERT
-    // look like it failed.
-    const { error } = await supabaseClient
-        .from("events")
-        .insert({
-            title,
-            event_type_id: eventTypeId,
-            event_date: eventDate,
-            start_time: startTime,
-            end_time: endTime,
-            location: location || null,
-            description: description || null,
-            staff_required: staffRequired,
-            created_by: currentUser?.id || null,
-            updated_by: currentUser?.id || null
-        });
-
-    if (error) {
-        console.error("Create event failed:", error);
-        if (errorBox) errorBox.textContent = error.message;
-        return;
-    }
-
-    // Keep the newly-created event visible immediately, even if the follow-up
-    // SELECT is slow or temporarily fails. This also makes the calendar jump
-    // to the date the manager actually selected.
-    const matchingType =
-        eventTypes.find(type => type.id === eventTypeId) || null;
-
-    const localEvent = {
-        id: `local-${Date.now()}`,
+    const payload = {
         title,
         event_type_id: eventTypeId,
         event_date: eventDate,
@@ -1229,35 +1194,65 @@ async function createEvent(event) {
         description: description || null,
         staff_required: staffRequired,
         created_by: currentUser?.id || null,
-        updated_by: currentUser?.id || null,
-        event_types: matchingType,
-        event_staff: []
+        updated_by: currentUser?.id || null
     };
 
-    events = [
-        localEvent,
-        ...events.filter(item =>
-            !(item.event_date === eventDate &&
-              item.title === title &&
-              item.start_time === startTime)
-        )
-    ];
+    const { data, error } = await supabaseClient
+        .from("events")
+        .insert(payload)
+        .select(`
+            *,
+            event_types (
+                id,
+                name,
+                colour,
+                description
+            ),
+            event_staff (
+                id,
+                staff_id,
+                role,
+                staff (
+                    id,
+                    name,
+                    discord_id
+                )
+            )
+        `)
+        .single();
 
-    currentDate = new Date(`${eventDate}T12:00:00`);
+    if (error) {
+        errorBox.textContent = error.message;
+        console.error("Create event failed:", error);
+        return;
+    }
+
+    // Put the exact row returned by Supabase into the local calendar
+    // immediately. This prevents a successful insert from appearing to
+    // vanish while the calendar is refreshing.
+    events = [
+        ...events.filter(item => item.id !== data.id),
+        data
+    ].sort((a, b) =>
+        `${a.event_date} ${a.start_time}`
+            .localeCompare(`${b.event_date} ${b.start_time}`)
+    );
+
+    // Jump to the newly-created event's date so it is actually visible.
+    currentDate = new Date(`${data.event_date}T12:00:00`);
 
     closeModal();
     render();
 
-    // Now reconcile local state with the real database row. If this fails,
-    // leave the locally-rendered event in place instead of blanking the UI.
+    // Sync with Supabase in the background. If that refresh fails, keep the
+    // successfully-created event visible rather than wiping it from the UI.
     try {
         await loadEvents();
         render();
-    } catch (refreshError) {
-        console.error("Event created, but schedule refresh failed:", refreshError);
+    } catch (syncError) {
+        console.error("Event created, but calendar sync failed:", syncError);
     }
 }
-
 
 
 /* =========================================================
@@ -2032,12 +2027,10 @@ async function updateEvent(formEvent, eventId) {
 
     formEvent.preventDefault();
 
-
     const errorBox =
         document.getElementById("editEventFormError");
 
     errorBox.textContent = "";
-
 
     const title =
         document.getElementById("editEventTitle")
@@ -2071,15 +2064,17 @@ async function updateEvent(formEvent, eventId) {
             "editEventDescription"
         ).value.trim();
 
-
-    if (endTime <= startTime) {
-
+    if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
         errorBox.textContent =
-            "End time must be later than start time.";
-
+            "Please complete all required fields.";
         return;
     }
 
+    if (endTime <= startTime) {
+        errorBox.textContent =
+            "End time must be later than start time.";
+        return;
+    }
 
     const { error } = await supabaseClient
         .from("events")
@@ -2096,19 +2091,16 @@ async function updateEvent(formEvent, eventId) {
         })
         .eq("id", eventId);
 
-
     if (error) {
-
         errorBox.textContent = error.message;
-
+        console.error("Update event failed:", error);
         return;
     }
 
+    currentDate = new Date(`${eventDate}T12:00:00`);
 
     closeModal();
-
     await loadEvents();
-
     render();
 }
 
