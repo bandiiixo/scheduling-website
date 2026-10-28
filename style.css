@@ -33,9 +33,9 @@ body {
     margin: 0;
     min-height: 100vh;
     background:
-        radial-gradient(circle at 12% -8%, rgba(214, 31, 58, .12), transparent 30%),
-        radial-gradient(circle at 90% 0%, rgba(76, 156, 255, .08), transparent 26%),
-        var(--bg);
+        linear-gradient(rgba(3, 4, 8, .30), rgba(3, 4, 8, .46)),
+        url("./assets/kng-background.png") center center / cover fixed no-repeat;
+    background-color: #030408;
     color: var(--text);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-size: 14px;
@@ -72,6 +72,8 @@ button:disabled {
 
 .schedule-app {
     min-height: 100vh;
+    position: relative;
+    z-index: 1;
 }
 
 .schedule-header {
@@ -324,7 +326,7 @@ button:disabled {
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: rgba(13, 20, 32, .76);
     box-shadow: var(--shadow);
 }
 
@@ -1441,17 +1443,17 @@ body.modal-open {
     --line-strong: rgba(255, 36, 72, .24);
 }
 
-html {
-    min-height: 100%;
+html,
+body {
     background: #05070c;
 }
 
 body {
     background:
-        linear-gradient(180deg, rgba(4, 5, 10, .24), rgba(4, 5, 10, .52)),
-        url("assets/kng-background.png") center top / cover fixed no-repeat,
+        radial-gradient(circle at 9% 8%, rgba(255, 20, 58, .18), transparent 25%),
+        radial-gradient(circle at 92% 12%, rgba(217, 4, 43, .13), transparent 28%),
+        radial-gradient(circle at 50% 100%, rgba(120, 0, 25, .10), transparent 38%),
         #05070c;
-    background-attachment: fixed;
 }
 
 .schedule-header {
@@ -1549,8 +1551,7 @@ body {
 .month-calendar {
     position: relative;
     border-color: rgba(255, 36, 72, .36);
-    background: rgba(9, 13, 21, .72);
-    backdrop-filter: blur(8px);
+    background: #090d15;
     box-shadow: 0 25px 70px rgba(0,0,0,.42), 0 0 42px rgba(255,20,68,.07);
 }
 
@@ -1574,8 +1575,7 @@ body {
 }
 
 .month-cell {
-    background: linear-gradient(145deg, rgba(13, 20, 30, .78), rgba(10, 16, 25, .72));
-    backdrop-filter: blur(3px);
+    background: linear-gradient(145deg, #0d141e, #0a1019);
     border-right-color: rgba(255, 36, 72, .11);
     border-bottom-color: rgba(132, 149, 171, .14);
 }
@@ -1590,7 +1590,7 @@ body {
 }
 
 .month-cell.outside-month {
-    background: rgba(8, 12, 19, .76);
+    background: #080c13;
 }
 
 .month-cell.today {
@@ -1607,8 +1607,7 @@ body {
 .week-calendar,
 .day-calendar {
     border-color: rgba(255, 36, 72, .28);
-    background: rgba(9, 13, 21, .72);
-    backdrop-filter: blur(8px);
+    background: #090d15;
     box-shadow: 0 25px 70px rgba(0,0,0,.42), 0 0 36px rgba(255,20,68,.055);
 }
 
@@ -1639,7 +1638,7 @@ body {
 }
 
 .week-body {
-    background: rgba(8, 13, 21, .70);
+    background: #080d15;
 }
 
 .week-row:not(:last-child) > * {
@@ -1681,20 +1680,8 @@ body {
     box-shadow: 0 7px 20px rgba(0,0,0,.25), 0 0 12px color-mix(in srgb, var(--event-colour) 12%, transparent);
 }
 
-/* Scrollbars: hide the Week view scrollbar so it can never steal
-   horizontal space from the seven equally-sized day columns. */
-.week-body {
-    scrollbar-width: none !important;
-    -ms-overflow-style: none !important;
-}
-
-.week-body::-webkit-scrollbar {
-    width: 0 !important;
-    height: 0 !important;
-    display: none !important;
-}
-
-/* Keep internal modal/list scrollbars subtle and branded. */
+/* Scrollbars stay subtle and branded */
+.week-body,
 .modal-body,
 .requests-list,
 .staff-list {
@@ -1702,18 +1689,21 @@ body {
     scrollbar-width: thin;
 }
 
+.week-body::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
 .requests-list::-webkit-scrollbar,
 .staff-list::-webkit-scrollbar {
     width: 6px;
 }
 
+.week-body::-webkit-scrollbar-track,
 .modal-body::-webkit-scrollbar-track,
 .requests-list::-webkit-scrollbar-track,
 .staff-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
+.week-body::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
 .requests-list::-webkit-scrollbar-thumb,
 .staff-list::-webkit-scrollbar-thumb {
@@ -1721,28 +1711,9 @@ body {
     border-radius: 999px;
 }
 
+.week-body::-webkit-scrollbar-thumb:hover,
 .modal-body::-webkit-scrollbar-thumb:hover,
 .requests-list::-webkit-scrollbar-thumb:hover,
 .staff-list::-webkit-scrollbar-thumb:hover {
     background: #ff3154;
-}
-
-
-/* =========================================================
-   KNG ATMOSPHERIC BACKGROUND
-   ========================================================= */
-.schedule-app {
-    position: relative;
-    isolation: isolate;
-}
-
-.schedule-app::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-        radial-gradient(circle at 8% 24%, rgba(255, 25, 65, .10), transparent 23%),
-        radial-gradient(circle at 92% 62%, rgba(255, 25, 65, .08), transparent 24%);
 }
