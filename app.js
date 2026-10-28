@@ -603,9 +603,11 @@ function renderWeek(container) {
                     onclick="handleDateClick('${dateString}', ${hour})"
                 >
 
-                    ${hourEvents.map(event =>
-                        renderCalendarEvent(event)
-                    ).join("")}
+                    <div class="week-cell-events" style="display:flex; flex-direction:column; gap:4px; width:100%; height:100%; overflow:visible;">
+                        ${hourEvents.map(event =>
+                            renderCalendarEvent(event)
+                        ).join("")}
+                    </div>
 
                 </div>
             `;
@@ -687,7 +689,10 @@ function renderDay(container) {
                 </div>
 
                 <div class="day-events-layer">
-                    ${dayEvents.map(event => renderDayTimelineEvent(event)).join("")}
+                    ${dayEvents.map(event => {
+                        const layout = getEventOverlapLayout(event, dayEvents);
+                        return renderDayTimelineEvent(event, layout);
+                    }).join("")}
                 </div>
             </div>
         </div>
@@ -696,7 +701,7 @@ function renderDay(container) {
     container.innerHTML = html;
 }
 
-function renderDayTimelineEvent(event) {
+function renderDayTimelineEvent(event, layout = null) {
     const colour = event.event_types?.colour || "#d1002f";
     const allocated = event.event_staff?.length || 0;
     const required = event.staff_required || 0;
@@ -708,10 +713,16 @@ function renderDayTimelineEvent(event) {
     const top = (startMinutes / 60) * 72;
     const height = Math.max((duration / 60) * 72 - 4, 48);
 
+    const column = layout?.column ?? 0;
+    const columns = layout?.columns ?? 1;
+    const gap = columns > 1 ? 4 : 0;
+    const width = `calc(${100 / columns}% - ${gap}px)`;
+    const left = `calc(${(column * 100) / columns}% + ${column * (gap / 2)}px)`;
+
     return `
         <div
             class="day-timeline-event"
-            style="--event-colour:${colour}; top:${top}px; height:${height}px"
+            style="--event-colour:${colour}; top:${top}px; height:${height}px; left:${left}; width:${width}; z-index:${10 + column}"
             onclick="event.stopPropagation(); openEvent('${event.id}')"
         >
             <div class="day-event-time">
@@ -727,6 +738,52 @@ function renderDayTimelineEvent(event) {
 function timeToMinutes(time) {
     const [hours, minutes] = String(time || "00:00").split(":").map(Number);
     return (Number.isFinite(hours) ? hours : 0) * 60 + (Number.isFinite(minutes) ? minutes : 0);
+}
+
+// Give overlapping events their own visible column instead of letting them
+// sit directly on top of each other. Multiple events can therefore share
+// the same hour without any of them disappearing behind another.
+function getEventOverlapLayout(event, allEvents) {
+    const start = timeToMinutes(event.start_time);
+    const end = Math.max(timeToMinutes(event.end_time), start + 1);
+
+    const overlapping = allEvents
+        .filter(other => {
+            if (other.id === event.id) return true;
+
+            const otherStart = timeToMinutes(other.start_time);
+            const otherEnd = Math.max(timeToMinutes(other.end_time), otherStart + 1);
+
+            return start < otherEnd && end > otherStart;
+        })
+        .sort((a, b) => {
+            const startDiff = timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+            if (startDiff !== 0) return startDiff;
+            return String(a.id).localeCompare(String(b.id));
+        });
+
+    const columns = [];
+
+    overlapping.forEach(item => {
+        const itemStart = timeToMinutes(item.start_time);
+        const itemEnd = Math.max(timeToMinutes(item.end_time), itemStart + 1);
+
+        let column = columns.findIndex(columnEnd => itemStart >= columnEnd);
+
+        if (column === -1) {
+            column = columns.length;
+            columns.push(itemEnd);
+        } else {
+            columns[column] = itemEnd;
+        }
+
+        item.__layoutColumn = column;
+    });
+
+    return {
+        column: event.__layoutColumn || 0,
+        columns: Math.max(columns.length, 1)
+    };
 }
 
 
