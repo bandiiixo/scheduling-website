@@ -1137,12 +1137,10 @@ async function createEvent(event) {
 
     event.preventDefault();
 
-
     const errorBox =
         document.getElementById("eventFormError");
 
-    errorBox.textContent = "";
-
+    if (errorBox) errorBox.textContent = "";
 
     const title =
         document.getElementById("eventTitle").value.trim();
@@ -1164,27 +1162,36 @@ async function createEvent(event) {
 
     const staffRequired =
         parseInt(
-            document.getElementById(
-                "eventStaffRequired"
-            ).value
+            document.getElementById("eventStaffRequired").value,
+            10
         ) || 0;
 
     const description =
-        document.getElementById(
-            "eventDescription"
-        ).value.trim();
+        document.getElementById("eventDescription").value.trim();
 
-
-    if (endTime <= startTime) {
-
-        errorBox.textContent =
-            "End time must be later than start time.";
-
+    if (!title) {
+        if (errorBox) errorBox.textContent = "Event title is required.";
         return;
     }
 
+    if (!eventDate) {
+        if (errorBox) errorBox.textContent = "Event date is required.";
+        return;
+    }
 
-   const { data: createdEvent, error } = await supabaseClient
+    if (!startTime || !endTime || endTime <= startTime) {
+        if (errorBox) {
+            errorBox.textContent =
+                "End time must be later than start time.";
+        }
+        return;
+    }
+
+    // Insert the row only. Do not ask Supabase to immediately perform a
+    // nested relational SELECT here. The event itself is what matters, and
+    // a secondary relationship query should never make a successful INSERT
+    // look like it failed.
+    const { error } = await supabaseClient
         .from("events")
         .insert({
             title,
@@ -1197,50 +1204,60 @@ async function createEvent(event) {
             staff_required: staffRequired,
             created_by: currentUser?.id || null,
             updated_by: currentUser?.id || null
-        })
-        .select(`
-            *,
-            event_types (
-                id,
-                name,
-                colour,
-                description
-            ),
-            event_staff (
-                id,
-                staff_id,
-                role
-            )
-        `)
-        .single();
+        });
 
     if (error) {
-
-        errorBox.textContent = error.message;
-
+        console.error("Create event failed:", error);
+        if (errorBox) errorBox.textContent = error.message;
         return;
     }
 
-    // Add the newly-created event locally immediately.
-    if (createdEvent) {
-        events = [
-            createdEvent,
-            ...events.filter(item => item.id !== createdEvent.id)
-        ];
-    }
+    // Keep the newly-created event visible immediately, even if the follow-up
+    // SELECT is slow or temporarily fails. This also makes the calendar jump
+    // to the date the manager actually selected.
+    const matchingType =
+        eventTypes.find(type => type.id === eventTypeId) || null;
+
+    const localEvent = {
+        id: `local-${Date.now()}`,
+        title,
+        event_type_id: eventTypeId,
+        event_date: eventDate,
+        start_time: startTime,
+        end_time: endTime,
+        location: location || null,
+        description: description || null,
+        staff_required: staffRequired,
+        created_by: currentUser?.id || null,
+        updated_by: currentUser?.id || null,
+        event_types: matchingType,
+        event_staff: []
+    };
+
+    events = [
+        localEvent,
+        ...events.filter(item =>
+            !(item.event_date === eventDate &&
+              item.title === title &&
+              item.start_time === startTime)
+        )
+    ];
+
+    currentDate = new Date(`${eventDate}T12:00:00`);
 
     closeModal();
     render();
 
-    // Refresh from Supabase so local state matches the database.
+    // Now reconcile local state with the real database row. If this fails,
+    // leave the locally-rendered event in place instead of blanking the UI.
     try {
         await loadEvents();
         render();
     } catch (refreshError) {
         console.error("Event created, but schedule refresh failed:", refreshError);
     }
-
 }
+
 
 
 /* =========================================================
