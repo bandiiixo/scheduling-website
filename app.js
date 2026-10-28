@@ -2349,15 +2349,8 @@ function openLoginModal() {
         <div class="modal-header">
 
             <div>
-
-                <h2>
-                    Staff Login
-                </h2>
-
-                <p>
-                    Sign in to access staff tools.
-                </p>
-
+                <h2>Staff Login</h2>
+                <p>Choose your access level to continue.</p>
             </div>
 
             <button
@@ -2369,7 +2362,6 @@ function openLoginModal() {
 
         </div>
 
-
         <form
             class="modal-form"
             onsubmit="login(event)"
@@ -2377,33 +2369,46 @@ function openLoginModal() {
 
             <div class="form-group">
 
-                <label>
-                    Email
+                <label for="login-role">
+                    Login
                 </label>
 
-                <input
-                    name="email"
-                    type="email"
+                <select
+                    id="login-role"
+                    name="role"
                     required
-                    autocomplete="username"
-                    placeholder="Staff email"
                 >
+
+                    <option value="">
+                        Select login
+                    </option>
+
+                    <option value="staff">
+                        Staff
+                    </option>
+
+                    <option value="management">
+                        Management
+                    </option>
+
+                </select>
 
             </div>
 
 
             <div class="form-group">
 
-                <label>
+                <label for="login-password">
                     Password
                 </label>
 
                 <input
+                    id="login-password"
                     name="password"
                     type="password"
                     required
                     autocomplete="current-password"
-                    placeholder="Password"
+                    placeholder="Enter password"
                 >
 
             </div>
