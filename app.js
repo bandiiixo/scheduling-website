@@ -161,7 +161,7 @@ function render() {
             <header class="schedule-header">
 
                 <div class="schedule-brand">
-                    <div class="schedule-logo">K</div>
+                    <div class="schedule-logo"><img src="city-logo-mark.png" alt="City logo"></div>
 
                     <div>
                         <h1>KNG Schedule</h1>
