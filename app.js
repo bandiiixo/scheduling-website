@@ -1134,7 +1134,6 @@ function openCreateEventModal(date = null, hour = null) {
 
 
 async function createEvent(event) {
-
     event.preventDefault();
 
     const errorBox =
@@ -1162,12 +1161,12 @@ async function createEvent(event) {
 
     const staffRequired =
         parseInt(
-            document.getElementById("eventStaffRequired").value,
-            10
+            document.getElementById("eventStaffRequired").value
         ) || 0;
 
     const description =
         document.getElementById("eventDescription").value.trim();
+
 
     if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
         errorBox.textContent =
@@ -1175,25 +1174,18 @@ async function createEvent(event) {
         return;
     }
 
+
     if (endTime <= startTime) {
         errorBox.textContent =
             "End time must be later than start time.";
         return;
     }
 
-    // Do not rely on the browser's cached access state to authorise the
-    // operation. The database RPC performs the real Management check.
-    if (!currentUser) {
-        errorBox.textContent =
-            "You are not signed in. Please sign in again.";
-        return;
-    }
 
-    errorBox.textContent = "Creating event...";
-
-    try {
-        const rpcResult =
-            await supabaseClient.rpc("create_schedule_event", {
+    const { data: eventId, error } =
+        await supabaseClient.rpc(
+            "create_schedule_event",
+            {
                 p_title: title,
                 p_event_type_id: eventTypeId,
                 p_event_date: eventDate,
@@ -1202,67 +1194,38 @@ async function createEvent(event) {
                 p_location: location || null,
                 p_description: description || null,
                 p_staff_required: staffRequired
-            });
+            }
+        );
 
-        console.log("create_schedule_event RPC result:", rpcResult);
 
-        const { data: eventId, error } = rpcResult;
-
-        if (error) {
-            console.error("create_schedule_event RPC failed:", error);
-
-            const details = [
-                error.message,
-                error.code ? `Code: ${error.code}` : "",
-                error.details ? `Details: ${error.details}` : "",
-                error.hint ? `Hint: ${error.hint}` : ""
-            ].filter(Boolean).join(" | ");
-
-            errorBox.textContent =
-                `Create failed: ${details}`;
-            return;
-        }
-
-        if (!eventId) {
-            console.error("create_schedule_event returned no event ID.", rpcResult);
-            errorBox.textContent =
-                "Create failed: the database did not return the new event ID.";
-            return;
-        }
-
-        // Reload the real rows from Supabase.
-        await loadEvents();
-
-        // Make sure the newly-created event was actually returned by SELECT.
-        const createdEvent =
-            events.find(item => item.id === eventId);
-
-        if (!createdEvent) {
-            errorBox.textContent =
-                "The event was created in the database, but the calendar could not read it back.";
-            console.error(
-                "Event created but not returned by loadEvents():",
-                eventId
-            );
-            return;
-        }
-
-        currentDate =
-            new Date(`${createdEvent.event_date}T12:00:00`);
-
-        closeModal();
-        render();
-
-        console.log("Schedule event created successfully:", createdEvent);
-
-    } catch (createError) {
-        console.error("Unexpected create event error:", createError);
+    if (error) {
+        console.error(
+            "Failed to create schedule event:",
+            error
+        );
 
         errorBox.textContent =
-            `Create failed: ${createError?.message || String(createError)}`;
-    }
-}
+            error.message;
 
+        return;
+    }
+
+
+    console.log(
+        "Schedule event created:",
+        eventId
+    );
+
+
+    closeModal();
+
+    await loadEvents();
+
+    currentDate =
+        new Date(`${eventDate}T12:00:00`);
+
+    render();
+}
 function pendingRequestCount() {
     if (!canManage()) return 0;
     return eventRequests.filter(request => request.status === "pending").length;
