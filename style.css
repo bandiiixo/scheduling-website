@@ -1558,3 +1558,10 @@ a {
 
     color: #65c995;
 }
+
+img[src*="city-logo-mark.png"] {
+    width: 42px !important;
+    height: 42px !important;
+    object-fit: contain !important;
+    display: block !important;
+}
