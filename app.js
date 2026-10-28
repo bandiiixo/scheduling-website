@@ -1163,90 +1163,249 @@ async function createEvent(event) {
 
     errorBox.textContent = "";
 
-    const title =
-        document.getElementById("eventTitle").value.trim();
+    try {
+        const title =
+            document.getElementById("eventTitle").value.trim();
 
-    const eventTypeId =
-        document.getElementById("eventType").value;
+        const eventTypeId =
+            document.getElementById("eventType").value;
 
-    const eventDate =
-        document.getElementById("eventDate").value;
+        const eventDate =
+            document.getElementById("eventDate").value;
 
-    const startTime =
-        document.getElementById("eventStart").value;
+        const startTime =
+            document.getElementById("eventStart").value;
 
-    const endTime =
-        document.getElementById("eventEnd").value;
+        const endTime =
+            document.getElementById("eventEnd").value;
 
-    const location =
-        document.getElementById("eventLocation").value.trim();
+        const location =
+            document.getElementById("eventLocation").value.trim();
 
-    const staffRequired =
-        parseInt(
-            document.getElementById("eventStaffRequired").value
-        ) || 0;
+        const staffRequired =
+            parseInt(
+                document.getElementById("eventStaffRequired").value,
+                10
+            ) || 0;
 
-    const description =
-        document.getElementById("eventDescription").value.trim();
+        const description =
+            document.getElementById("eventDescription").value.trim();
 
 
-    if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
+        if (!title || !eventTypeId || !eventDate || !startTime || !endTime) {
+            errorBox.textContent =
+                "Please complete all required fields.";
+            return;
+        }
+
+
+        if (endTime <= startTime) {
+            errorBox.textContent =
+                "End time must be later than start time.";
+            return;
+        }
+
+
+        /*
+         * Get the REAL authenticated user from Supabase.
+         * Do not rely only on currentUser.
+         */
+        const {
+            data: userData,
+            error: userError
+        } = await supabaseClient.auth.getUser();
+
+
+        if (userError) {
+            console.error(
+                "Could not get authenticated user:",
+                userError
+            );
+
+            errorBox.textContent =
+                `Authentication error: ${userError.message}`;
+
+            return;
+        }
+
+
+        if (!userData?.user) {
+            errorBox.textContent =
+                "You are not signed in. Please sign in again.";
+
+            return;
+        }
+
+
         errorBox.textContent =
-            "Please complete all required fields.";
-        return;
-    }
+            "Creating event...";
 
 
-    if (endTime <= startTime) {
-        errorBox.textContent =
-            "End time must be later than start time.";
-        return;
-    }
+        /*
+         * Call the database RPC.
+         */
+        const rpcResult =
+            await supabaseClient.rpc(
+                "create_schedule_event",
+                {
+                    p_title: title,
+                    p_event_type_id: eventTypeId,
+                    p_event_date: eventDate,
+                    p_start_time: startTime,
+                    p_end_time: endTime,
+                    p_location: location || null,
+                    p_description: description || null,
+                    p_staff_required: staffRequired
+                }
+            );
 
 
-    const { data: eventId, error } =
-        await supabaseClient.rpc(
-            "create_schedule_event",
-            {
-                p_title: title,
-                p_event_type_id: eventTypeId,
-                p_event_date: eventDate,
-                p_start_time: startTime,
-                p_end_time: endTime,
-                p_location: location || null,
-                p_description: description || null,
-                p_staff_required: staffRequired
-            }
+        console.log(
+            "create_schedule_event RPC result:",
+            rpcResult
         );
 
 
-    if (error) {
-        console.error(
-            "Failed to create schedule event:",
+        const {
+            data: eventId,
             error
+        } = rpcResult;
+
+
+        /*
+         * RPC failed.
+         */
+        if (error) {
+            console.error(
+                "create_schedule_event failed:",
+                error
+            );
+
+            const details = [
+                error.message,
+                error.code
+                    ? `Code: ${error.code}`
+                    : "",
+                error.details
+                    ? `Details: ${error.details}`
+                    : "",
+                error.hint
+                    ? `Hint: ${error.hint}`
+                    : ""
+            ]
+                .filter(Boolean)
+                .join(" | ");
+
+
+            errorBox.textContent =
+                `Create failed: ${details}`;
+
+            return;
+        }
+
+
+        /*
+         * The RPC must return the UUID created by PostgreSQL.
+         */
+        if (!eventId) {
+            console.error(
+                "RPC returned no event ID:",
+                rpcResult
+            );
+
+            errorBox.textContent =
+                "Create failed: the database did not return an event ID.";
+
+            return;
+        }
+
+
+        console.log(
+            "EVENT CREATED IN DATABASE:",
+            eventId
+        );
+
+
+        /*
+         * Now reload the actual events from Supabase.
+         */
+        try {
+            await loadEvents();
+        } catch (loadError) {
+
+            console.error(
+                "Event was created but loadEvents() failed:",
+                loadError
+            );
+
+            errorBox.textContent =
+                `Event was created, but the calendar could not reload: ${
+                    loadError?.message || String(loadError)
+                }`;
+
+            return;
+        }
+
+
+        /*
+         * Make absolutely sure the newly-created event
+         * exists in the rows returned by Supabase.
+         */
+        const createdEvent =
+            events.find(
+                item => item.id === eventId
+            );
+
+
+        if (!createdEvent) {
+
+            console.error(
+                "RPC created event but loadEvents() did not return it.",
+                {
+                    eventId,
+                    events
+                }
+            );
+
+            errorBox.textContent =
+                "The event was created, but the calendar could not read it back.";
+
+            return;
+        }
+
+
+        /*
+         * Jump the calendar to the newly-created event.
+         */
+        currentDate =
+            new Date(
+                `${createdEvent.event_date}T12:00:00`
+            );
+
+
+        closeModal();
+
+        render();
+
+
+        console.log(
+            "Schedule event displayed successfully:",
+            createdEvent
+        );
+
+    } catch (createError) {
+
+        console.error(
+            "Unexpected createEvent error:",
+            createError
         );
 
         errorBox.textContent =
-            error.message;
-
-        return;
+            `Create failed: ${
+                createError?.message ||
+                String(createError)
+            }`;
     }
-
-
-    console.log(
-        "Schedule event created:",
-        eventId
-    );
-
-
-    closeModal();
-
-    await loadEvents();
-
-    currentDate =
-        new Date(`${eventDate}T12:00:00`);
-
-    render();
 }
 function pendingRequestCount() {
     if (!canManage()) return 0;
