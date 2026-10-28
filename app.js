@@ -2038,7 +2038,7 @@ async function updateEvent(formEvent, eventId) {
 
     const { error } = await supabaseClient
     .from("events")
-    .insert({
+    .update({
         title,
         event_type_id: eventTypeId,
         event_date: eventDate,
@@ -2047,10 +2047,9 @@ async function updateEvent(formEvent, eventId) {
         location: location || null,
         description: description || null,
         staff_required: staffRequired,
-        created_by: currentUser?.id || null,
         updated_by: currentUser?.id || null
-    });
-        .eq("id", eventId);
+    })
+    .eq("id", eventId);
 
 
     if (error) {
