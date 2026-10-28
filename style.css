@@ -1678,8 +1678,20 @@ body {
     box-shadow: 0 7px 20px rgba(0,0,0,.25), 0 0 12px color-mix(in srgb, var(--event-colour) 12%, transparent);
 }
 
-/* Scrollbars stay subtle and branded */
-.week-body,
+/* Scrollbars: hide the Week view scrollbar so it can never steal
+   horizontal space from the seven equally-sized day columns. */
+.week-body {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+}
+
+.week-body::-webkit-scrollbar {
+    width: 0 !important;
+    height: 0 !important;
+    display: none !important;
+}
+
+/* Keep internal modal/list scrollbars subtle and branded. */
 .modal-body,
 .requests-list,
 .staff-list {
@@ -1687,21 +1699,18 @@ body {
     scrollbar-width: thin;
 }
 
-.week-body::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
 .requests-list::-webkit-scrollbar,
 .staff-list::-webkit-scrollbar {
     width: 6px;
 }
 
-.week-body::-webkit-scrollbar-track,
 .modal-body::-webkit-scrollbar-track,
 .requests-list::-webkit-scrollbar-track,
 .staff-list::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.week-body::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
 .requests-list::-webkit-scrollbar-thumb,
 .staff-list::-webkit-scrollbar-thumb {
@@ -1709,7 +1718,6 @@ body {
     border-radius: 999px;
 }
 
-.week-body::-webkit-scrollbar-thumb:hover,
 .modal-body::-webkit-scrollbar-thumb:hover,
 .requests-list::-webkit-scrollbar-thumb:hover,
 .staff-list::-webkit-scrollbar-thumb:hover {
