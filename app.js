@@ -152,17 +152,39 @@ async function loadAccess() {
 
     if (!currentUser) return;
 
-    const { data, error } = await supabaseClient
-        .from("staff_access")
-        .select("access_level, active")
-        .eq("user_id", currentUser.id)
-        .eq("active", true)
-        .maybeSingle();
 
-    if (error) {
-        console.error("Access check failed:", error);
+    // Shared Management account
+    if (
+        currentUser.email?.toLowerCase() ===
+        "management@kngschedule.local"
+    ) {
+        currentAccess = {
+            access_level: "manager",
+            active: true
+        };
+
         return;
     }
+
+
+    const { data, error } =
+        await supabaseClient
+            .from("staff_access")
+            .select("access_level, active")
+            .eq("user_id", currentUser.id)
+            .eq("active", true)
+            .maybeSingle();
+
+
+    if (error) {
+        console.error(
+            "Access check failed:",
+            error
+        );
+
+        return;
+    }
+
 
     currentAccess = data || null;
 }
