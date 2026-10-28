@@ -401,37 +401,85 @@ a {
 /* =========================================================
    MONTH VIEW
    ========================================================= */
+.month-cell {
+    position: relative;
 
-.month-calendar {
-    width: 100%;
+    min-height: 135px;
+    height: 135px;
+
+    padding: 8px;
+
+    border-right: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+
+    background: var(--card);
+
+    overflow: hidden;
+
+    cursor: pointer;
+
+    transition:
+        background var(--transition);
 }
 
-.weekday-row {
+.month-cell:nth-child(7n) {
+    border-right: 0;
+}
+
+.month-cell:hover {
+    background: #142131;
+}
+
+.month-cell.outside-month {
+    background: #0d1620;
+}
+
+.month-cell.outside-month .month-day-number {
+    color: #465667;
+}
+
+.month-cell.today .month-day-number {
+    background: var(--red);
+    color: white;
+
+    box-shadow:
+        0 4px 12px rgba(179, 18, 32, .3);
+}
+
+.month-cell-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    min-height: 28px;
+
+    margin-bottom: 5px;
+}
+
+.month-day-number {
+    width: 28px;
+    height: 28px;
+
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    place-items: center;
 
-    border-bottom: 1px solid var(--line);
+    border-radius: 50%;
 
-    background: var(--surface);
+    color: var(--muted);
+
+    font-size: 12px;
+    font-weight: 700;
 }
 
-.weekday-row > div {
-    padding: 10px 12px;
+.month-events {
+    display: flex;
+    flex-direction: column;
 
-    color: var(--muted-2);
-
-    font-size: 11px;
-    font-weight: 800;
-
-    text-transform: uppercase;
-    letter-spacing: .08em;
-
-    text-align: left;
+    gap: 4px;
 }
 
-.month-grid {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+.month-events .calendar-event {
+    min-width: 0;
 }
 
 .calendar-day {
@@ -490,13 +538,6 @@ a {
 
     box-shadow:
         0 4px 12px rgba(179, 18, 32, .3);
-}
-
-.day-events {
-    display: flex;
-    flex-direction: column;
-
-    gap: 4px;
 }
 
 /* =========================================================
