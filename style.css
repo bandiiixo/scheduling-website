@@ -475,60 +475,77 @@ button:disabled {
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: var(--radius);
-    background: var(--panel);
+    background: #080e17;
     box-shadow: var(--shadow);
 }
 
+/* The week is intentionally treated as seven soft panels rather than
+   one giant spreadsheet. It keeps the grid professional without making
+   every column look like a prison cell. */
 .week-header {
     display: grid;
-    grid-template-columns: 64px repeat(7, minmax(0, 1fr));
+    grid-template-columns: 54px repeat(7, minmax(0, 1fr));
+    column-gap: 6px;
+    padding: 0 6px 0 0;
     border-bottom: 1px solid var(--line-strong);
-    background: #0a111c;
+    background: #080e17;
 }
 
 .time-column-header {
-    border-right: 1px solid var(--line);
+    border-right: 0;
 }
 
 .week-day-header {
-    min-height: 64px;
-    padding: 9px;
+    min-height: 68px;
+    padding: 10px 8px;
     display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 2px;
-    border-right: 1px solid var(--line);
+    gap: 4px;
+    border: 1px solid #1c2a3a;
+    border-bottom-color: #223247;
+    border-radius: 10px 10px 0 0;
+    background: linear-gradient(180deg, #0d1622, #0b131e);
     color: var(--muted);
-}
-
-.week-day-header:last-child {
-    border-right: 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
 }
 
 .week-day-header span {
+    color: #7fa1c4;
     font-size: 10px;
-    font-weight: 800;
+    font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: .08em;
+    letter-spacing: .1em;
 }
 
 .week-day-header strong {
-    font-size: 19px;
+    color: #d8e4f0;
+    font-size: 20px;
+    line-height: 1;
 }
 
 .week-day-header.today {
     color: white;
-    background: rgba(214, 31, 58, .09);
+    border-color: rgba(214, 31, 58, .45);
+    background:
+        radial-gradient(circle at 50% 0%, rgba(214,31,58,.18), transparent 62%),
+        linear-gradient(180deg, #17121b, #100f17);
+    box-shadow: inset 0 2px 0 rgba(255, 64, 91, .75);
+}
+
+.week-day-header.today span {
+    color: #ff7d91;
 }
 
 .week-day-header.today strong {
-    color: #ff8799;
+    color: #ff8a9b;
 }
 
 .week-body {
     overflow: auto;
     max-height: calc(100vh - 205px);
+    padding: 6px 6px 8px 0;
     scrollbar-width: thin;
     scrollbar-color: #263447 transparent;
 }
@@ -556,43 +573,71 @@ button:disabled {
 
 .week-row {
     display: grid;
-    grid-template-columns: 64px repeat(7, minmax(0, 1fr));
-    min-height: 54px;
-}
-
-.week-row:not(:last-child) > * {
-    border-bottom: 1px solid var(--line);
+    grid-template-columns: 54px repeat(7, minmax(0, 1fr));
+    column-gap: 6px;
+    min-height: 58px;
 }
 
 .time-label {
-    padding: 8px 7px 0;
-    color: var(--muted-2);
-    border-right: 1px solid var(--line);
-    background: #0a111a;
-    font-size: 10px;
-    font-weight: 700;
+    padding: 10px 8px 0 0;
+    color: #5f7895;
+    border-right: 0;
+    background: transparent;
+    font-size: 9px;
+    font-weight: 800;
     text-align: right;
+    letter-spacing: .02em;
 }
 
 .week-cell {
     position: relative;
     min-width: 0;
-    padding: 4px;
-    border-right: 1px solid var(--line);
+    min-height: 58px;
+    padding: 5px;
+    border: 1px solid #182638;
+    border-radius: 7px;
+    background: rgba(11, 18, 29, .72);
     cursor: pointer;
-    transition: background var(--transition);
+    transition:
+        background var(--transition),
+        border-color var(--transition),
+        transform var(--transition);
 }
 
-.week-cell:last-child {
-    border-right: 0;
+.week-cell:nth-child(3),
+.week-cell:nth-child(5),
+.week-cell:nth-child(7) {
+    background: rgba(14, 23, 35, .78);
 }
 
 .week-cell:hover {
-    background: rgba(76, 156, 255, .045);
+    background: rgba(25, 39, 57, .92);
+    border-color: #2b4058;
+}
+
+.week-row .week-cell.today-cell {
+    background: linear-gradient(180deg, rgba(214,31,58,.065), rgba(11,18,29,.78));
+    border-color: rgba(214,31,58,.22);
 }
 
 .week-cell .calendar-event {
-    height: 46px;
+    height: auto;
+    min-height: 44px;
+    margin-bottom: 4px;
+}
+
+.week-cell .calendar-event:last-child {
+    margin-bottom: 0;
+}
+
+.week-cell .calendar-event strong {
+    font-size: 10px;
+}
+
+.week-cell .calendar-event .event-time,
+.week-cell .calendar-event .event-type,
+.week-cell .calendar-event .event-staff {
+    font-size: 8px;
 }
 
 /* =========================================================
