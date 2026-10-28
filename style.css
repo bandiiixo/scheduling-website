@@ -1441,17 +1441,17 @@ body.modal-open {
     --line-strong: rgba(255, 36, 72, .24);
 }
 
-html,
-body {
+html {
+    min-height: 100%;
     background: #05070c;
 }
 
 body {
     background:
-        radial-gradient(circle at 9% 8%, rgba(255, 20, 58, .18), transparent 25%),
-        radial-gradient(circle at 92% 12%, rgba(217, 4, 43, .13), transparent 28%),
-        radial-gradient(circle at 50% 100%, rgba(120, 0, 25, .10), transparent 38%),
+        linear-gradient(180deg, rgba(4, 5, 10, .24), rgba(4, 5, 10, .52)),
+        url("assets/kng-background.png") center top / cover fixed no-repeat,
         #05070c;
+    background-attachment: fixed;
 }
 
 .schedule-header {
@@ -1549,7 +1549,8 @@ body {
 .month-calendar {
     position: relative;
     border-color: rgba(255, 36, 72, .36);
-    background: #090d15;
+    background: rgba(9, 13, 21, .72);
+    backdrop-filter: blur(8px);
     box-shadow: 0 25px 70px rgba(0,0,0,.42), 0 0 42px rgba(255,20,68,.07);
 }
 
@@ -1573,7 +1574,8 @@ body {
 }
 
 .month-cell {
-    background: linear-gradient(145deg, #0d141e, #0a1019);
+    background: linear-gradient(145deg, rgba(13, 20, 30, .78), rgba(10, 16, 25, .72));
+    backdrop-filter: blur(3px);
     border-right-color: rgba(255, 36, 72, .11);
     border-bottom-color: rgba(132, 149, 171, .14);
 }
@@ -1588,7 +1590,7 @@ body {
 }
 
 .month-cell.outside-month {
-    background: #080c13;
+    background: rgba(8, 12, 19, .76);
 }
 
 .month-cell.today {
@@ -1605,7 +1607,8 @@ body {
 .week-calendar,
 .day-calendar {
     border-color: rgba(255, 36, 72, .28);
-    background: #090d15;
+    background: rgba(9, 13, 21, .72);
+    backdrop-filter: blur(8px);
     box-shadow: 0 25px 70px rgba(0,0,0,.42), 0 0 36px rgba(255,20,68,.055);
 }
 
@@ -1636,7 +1639,7 @@ body {
 }
 
 .week-body {
-    background: #080d15;
+    background: rgba(8, 13, 21, .70);
 }
 
 .week-row:not(:last-child) > * {
@@ -1724,61 +1727,22 @@ body {
     background: #ff3154;
 }
 
+
 /* =========================================================
    KNG ATMOSPHERIC BACKGROUND
    ========================================================= */
-html,
-body {
-    background-color: #030409;
-}
-
-body {
-    background-image:
-        linear-gradient(rgba(3, 4, 9, .42), rgba(3, 4, 9, .62)),
-        url("assets/kng-background.png");
-    background-position: center center;
-    background-size: cover;
-    background-repeat: no-repeat;
-    background-attachment: fixed;
-}
-
-.schedule-header {
-    background: rgba(5, 7, 12, .78);
-    backdrop-filter: blur(18px) saturate(125%);
-}
-
-.schedule-main {
+.schedule-app {
     position: relative;
-    z-index: 1;
+    isolation: isolate;
 }
 
-.calendar-container {
-    position: relative;
-    z-index: 1;
-}
-
-.month-calendar,
-.week-calendar,
-.day-calendar,
-.agenda-calendar {
-    background: rgba(7, 10, 17, .72);
-    backdrop-filter: blur(10px) saturate(115%);
-}
-
-.month-calendar {
-    box-shadow:
-        0 24px 70px rgba(0, 0, 0, .42),
-        0 0 55px rgba(255, 20, 68, .10);
-}
-
-/* Let the background breathe around the main calendar while keeping
-   the actual scheduling surface readable. */
-.month-calendar .weekday-row,
-.month-calendar .calendar-grid,
-.week-header,
-.week-body,
-.day-header,
-.day-body,
-.agenda-list {
-    background-color: rgba(7, 10, 17, .68);
+.schedule-app::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(circle at 8% 24%, rgba(255, 25, 65, .10), transparent 23%),
+        radial-gradient(circle at 92% 62%, rgba(255, 25, 65, .08), transparent 24%);
 }
