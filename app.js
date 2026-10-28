@@ -1184,20 +1184,35 @@ async function createEvent(event) {
     }
 
 
-   const { error } = await supabaseClient
-    .from("events")
-    .insert({
-        title,
-        event_type_id: eventTypeId,
-        event_date: eventDate,
-        start_time: startTime,
-        end_time: endTime,
-        location: location || null,
-        description: description || null,
-        staff_required: staffRequired,
-        created_by: currentUser?.id || null,
-        updated_by: currentUser?.id || null
-    });
+   const { data: createdEvent, error } = await supabaseClient
+        .from("events")
+        .insert({
+            title,
+            event_type_id: eventTypeId,
+            event_date: eventDate,
+            start_time: startTime,
+            end_time: endTime,
+            location: location || null,
+            description: description || null,
+            staff_required: staffRequired,
+            created_by: currentUser?.id || null,
+            updated_by: currentUser?.id || null
+        })
+        .select(`
+            *,
+            event_types (
+                id,
+                name,
+                colour,
+                description
+            ),
+            event_staff (
+                id,
+                staff_id,
+                role
+            )
+        `)
+        .single();
 
     if (error) {
 
@@ -1206,12 +1221,25 @@ async function createEvent(event) {
         return;
     }
 
+    // Add the newly-created event locally immediately.
+    if (createdEvent) {
+        events = [
+            createdEvent,
+            ...events.filter(item => item.id !== createdEvent.id)
+        ];
+    }
 
     closeModal();
-
-    await loadEvents();
-
     render();
+
+    // Refresh from Supabase so local state matches the database.
+    try {
+        await loadEvents();
+        render();
+    } catch (refreshError) {
+        console.error("Event created, but schedule refresh failed:", refreshError);
+    }
+
 }
 
 
@@ -2037,19 +2065,19 @@ async function updateEvent(formEvent, eventId) {
 
 
     const { error } = await supabaseClient
-    .from("events")
-    .update({
-        title,
-        event_type_id: eventTypeId,
-        event_date: eventDate,
-        start_time: startTime,
-        end_time: endTime,
-        location: location || null,
-        description: description || null,
-        staff_required: staffRequired,
-        updated_by: currentUser?.id || null
-    })
-    .eq("id", eventId);
+        .from("events")
+        .update({
+            title,
+            event_type_id: eventTypeId,
+            event_date: eventDate,
+            start_time: startTime,
+            end_time: endTime,
+            location: location || null,
+            description: description || null,
+            staff_required: staffRequired,
+            updated_by: currentUser?.id || null
+        })
+        .eq("id", eventId);
 
 
     if (error) {
