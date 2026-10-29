@@ -20,6 +20,11 @@ Navigation
 ----------
 The old horizontal operations tabs are now a left-hand sidebar. On small screens the sidebar becomes a horizontal scroll strip for usability.
 
+Discord-only authentication
+---------------------------
+- The website offers Discord login only. There is no email/password login form.
+- For a true Discord-only setup, disable the Email provider in Supabase Authentication -> Providers as well.
+
 Discord OAuth setup
 -------------------
 1. In Supabase Authentication -> Providers, enable Discord.

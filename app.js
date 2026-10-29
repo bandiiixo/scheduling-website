@@ -2336,14 +2336,7 @@ function openLogin() {
                 Continue with Discord
             </button>
 
-            <div class="login-divider"><span>or use existing account</span></div>
-
-            <form onsubmit="login(event)">
-                <div class="form-field"><label>Email</label><input id="loginEmail" type="email" autocomplete="email" required></div>
-                <div class="form-field"><label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
-                <div id="loginError" class="form-error"></div>
-                <div class="modal-footer"><button type="submit" class="primary-button">Sign In</button></div>
-            </form>
+            <div id="loginError" class="form-error"></div>
         </div>
     `);
 }
@@ -2359,57 +2352,6 @@ async function loginWithDiscord() {
     }
 }
 
-
-async function login(event) {
-
-    event.preventDefault();
-
-
-    const email =
-        document.getElementById(
-            "loginEmail"
-        ).value.trim();
-
-
-    const password =
-        document.getElementById(
-            "loginPassword"
-        ).value;
-
-
-    const errorBox =
-        document.getElementById(
-            "loginError"
-        );
-
-
-    errorBox.textContent = "";
-
-
-    const { error } =
-        await supabaseClient.auth
-            .signInWithPassword({
-                email,
-                password
-            });
-
-
-    if (error) {
-
-        errorBox.textContent =
-            error.message;
-
-        return;
-    }
-
-
-    closeModal();
-
-    await loadAccess();
-    await loadAccessRequests();
-
-    render();
-}
 
 async function logout() {
     const { error } = await supabaseClient.auth.signOut();
@@ -2615,8 +2557,6 @@ window.handleModalBackdrop =
 window.openLogin =
     openLogin;
 
-window.login =
-    login;
 
 
 

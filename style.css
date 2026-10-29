@@ -1956,8 +1956,6 @@ body {
 .discord-login-button{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(135deg,#5865f2,#4752c4);color:#fff;border-radius:11px;padding:12px 15px;font:inherit;font-weight:900;cursor:pointer;box-shadow:0 10px 24px rgba(88,101,242,.24);transition:.16s ease}
 .discord-login-button:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 13px 28px rgba(88,101,242,.32)}
 .discord-icon{width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.16);font-size:13px}
-.login-divider{display:flex;align-items:center;gap:10px;color:var(--muted-2);font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin:18px 0}
-.login-divider::before,.login-divider::after{content:"";height:1px;flex:1;background:var(--line)}
 .access-request-row{align-items:flex-start}
 .access-request-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
 .access-request-actions select{background:rgba(4,7,12,.72);border:1px solid var(--line-strong);color:var(--text);border-radius:9px;padding:8px 9px;font:inherit;font-size:10px}
