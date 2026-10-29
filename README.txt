@@ -1,28 +1,57 @@
-KNG ENTERTAINMENT - UPLOAD PACK
-================================
+KNG ENTERTAINMENT - FULL INTEGRATED UPLOAD PACK
+================================================
 
-Files in this pack:
-- app.js              Updated JavaScript with Discord auth + permission hierarchy
-- style.css           Existing polished KNG styling
-- kng-background.png  KNG background image
+This pack restores the integrated KNG Entertainment operations layer AND the new permission hierarchy.
 
-IMPORTANT
----------
-Keep your existing:
+PERMISSION HIERARCHY
+PUBLIC -> MEMBER -> ADM -> MANAGER -> DIRECTOR
+
+AUTH
+----
+Discord-only authentication.
+
+FILES TO REPLACE IN YOUR WEBSITE
+--------------------------------
+1. app.js
+2. style.css
+3. kng-background.png
+
+KEEP YOUR EXISTING FILES
+------------------------
 - index.html
 - supabase.js
 
-Replace the matching app.js and style.css in your Render/GitHub project with the files in this pack.
-Keep kng-background.png in the same folder as style.css.
+DATABASE
+--------
+kng_schedule_operations.sql contains the integrated operations database layer.
+It adds:
+- recurring/staff-only Community Meetings
+- event visibility and completion status
+- Party / Event / Battle Royale / Community Meeting presets
+- operations tracker/logging
+- completed-event counts and popularity leaderboard
+- Actions & Interactions hub
+- prize catalogue + prize wins
+- command vault + copy buttons + auto-generated commands
+- crashout timeouts
+- kick-off / remove-from-team blocks
+- staff access requests and approval chain
+- Entertainment permission handling
 
-AUTH / PERMISSIONS
-------------------
-Permission hierarchy:
-PUBLIC -> MEMBER -> ADM -> MANAGER -> DIRECTOR
+IMPORTANT
+---------
+Do NOT run the SQL blindly alongside other migration scripts. The existing KNG Schedule schema must already exist first.
+Your Director permission has already been assigned in Supabase.
 
-Discord OAuth is used for sign-in.
+EVENT PRESETS
+-------------
+Party
+Event
+Battle Royale
+Community Meeting
 
-Your current Supabase account has already been assigned:
-DIRECTOR / ACTIVE
+Community Meeting is configured as staff-only and biweekly.
 
-Do NOT run the old database SQL again just to upload these website files.
+SECURITY
+--------
+The UI hides features based on permission, but the Supabase RLS policies/RPCs in the SQL are the real security boundary.
