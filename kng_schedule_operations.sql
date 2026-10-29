@@ -109,8 +109,25 @@ as $$
     from public.staff_access sa
     where sa.user_id = auth.uid()
       and sa.active = true
-      and sa.access_level in ('manager', 'admin')
+      and sa.access_level in ('adm', 'manager', 'director')
   );
+$$;
+
+create or replace function public.kng_schedule_access_rank()
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case coalesce((select sa.access_level from public.staff_access sa where sa.user_id = auth.uid() and sa.active = true limit 1), 'member')
+    when 'public' then 0
+    when 'member' then 1
+    when 'adm' then 2
+    when 'manager' then 3
+    when 'director' then 4
+    else 0
+  end;
 $$;
 
 create or replace function public.kng_schedule_is_admin()
@@ -125,7 +142,7 @@ as $$
     from public.staff_access sa
     where sa.user_id = auth.uid()
       and sa.active = true
-      and sa.access_level = 'admin'
+      and sa.access_level in ('manager', 'director')
   );
 $$;
 
@@ -157,22 +174,22 @@ drop policy if exists ops_helpers_read on public.ops_helpers;
 drop policy if exists ops_helpers_write on public.ops_helpers;
 
 create policy ops_tracker_read on public.ops_tracker
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_tracker_write on public.ops_tracker
 for insert to authenticated with check (public.kng_schedule_can_manage() or created_by = auth.uid());
 
 create policy ops_points_read on public.ops_points
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_points_write on public.ops_points
 for insert to authenticated with check (public.kng_schedule_can_manage());
 
 create policy ops_hungry_read on public.ops_hungry
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_hungry_write on public.ops_hungry
 for all to authenticated using (public.kng_schedule_can_manage()) with check (public.kng_schedule_can_manage());
 
 create policy ops_reductions_read on public.ops_reductions
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_reductions_write on public.ops_reductions
 for all to authenticated using (public.kng_schedule_can_manage()) with check (public.kng_schedule_can_manage());
 
@@ -187,12 +204,12 @@ create policy ops_security_write on public.ops_security
 for insert to authenticated with check (public.kng_schedule_is_admin());
 
 create policy ops_prizes_read on public.ops_prizes
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_prizes_write on public.ops_prizes
 for all to authenticated using (public.kng_schedule_can_manage()) with check (public.kng_schedule_can_manage());
 
 create policy ops_helpers_read on public.ops_helpers
-for select to authenticated using (true);
+for select to authenticated using (public.kng_schedule_can_manage());
 create policy ops_helpers_write on public.ops_helpers
 for all to authenticated using (public.kng_schedule_can_manage()) with check (public.kng_schedule_can_manage());
 
@@ -271,8 +288,8 @@ for select to authenticated using (public.kng_schedule_can_manage() or lower(ema
 create policy ops_access_blocks_write on public.ops_access_blocks
 for all to authenticated using (public.kng_schedule_can_manage()) with check (public.kng_schedule_can_manage());
 
--- Entertainment permission: managers/admins keep full access; Entertainment can manage
--- entertainment events and operations without becoming a full administrator.
+-- Five permission layers: public -> member -> adm -> manager -> director.
+-- ADM can manage KNG Entertainment operations; Manager and Director inherit all lower permissions.
 create or replace function public.kng_schedule_can_manage()
 returns boolean
 language sql
@@ -285,7 +302,7 @@ as $$
     from public.staff_access sa
     where sa.user_id = auth.uid()
       and sa.active = true
-      and sa.access_level in ('manager', 'admin', 'entertainment')
+      and sa.access_level in ('adm', 'manager', 'director')
   );
 $$;
 
@@ -328,3 +345,215 @@ begin
     end loop;
   end if;
 end $$;
+
+-- Migrate the previous KNG Entertainment role names into the new hierarchy.
+update public.staff_access set access_level = 'adm' where access_level = 'entertainment';
+update public.staff_access set access_level = 'manager' where access_level = 'admin';
+
+-- =========================================================
+-- DISCORD AUTH + STAFF ACCESS CONFIRMATION
+-- =========================================================
+-- Discord handles authentication. This layer handles authorisation:
+-- a Discord account can sign in, but it does not become staff until
+-- an existing ADM, Manager or Director confirms the access request.
+
+create table if not exists public.staff_access_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  discord_id text not null,
+  discord_username text,
+  requested_name text,
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  requested_access_level text not null default 'adm',
+  review_note text,
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists staff_access_requests_status_idx on public.staff_access_requests(status, created_at desc);
+create index if not exists staff_access_requests_discord_idx on public.staff_access_requests(discord_id);
+create unique index if not exists staff_access_requests_one_pending_idx
+  on public.staff_access_requests(user_id) where status = 'pending';
+
+alter table public.staff_access_requests enable row level security;
+
+drop policy if exists staff_access_requests_select on public.staff_access_requests;
+drop policy if exists staff_access_requests_insert on public.staff_access_requests;
+
+create policy staff_access_requests_select on public.staff_access_requests
+for select to authenticated
+using (user_id = auth.uid() or public.kng_schedule_can_manage());
+
+create policy staff_access_requests_insert on public.staff_access_requests
+for insert to authenticated
+with check (user_id = auth.uid() and status = 'pending');
+
+create or replace function public.request_staff_access(p_requested_access_level text default 'member')
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  identity_row record;
+  staff_row record;
+  request_id uuid;
+  discord_name text;
+  current_rank integer;
+  requested_rank integer;
+begin
+  if auth.uid() is null then
+    raise exception 'You must be signed in.';
+  end if;
+
+  p_requested_access_level := lower(coalesce(trim(p_requested_access_level), 'member'));
+  if p_requested_access_level not in ('member','adm','manager','director') then
+    raise exception 'Invalid requested access level.';
+  end if;
+
+  current_rank := public.kng_schedule_access_rank();
+  requested_rank := case p_requested_access_level when 'member' then 1 when 'adm' then 2 when 'manager' then 3 when 'director' then 4 else 99 end;
+  if requested_rank <= current_rank then
+    raise exception 'You can only request the next permission level.';
+  end if;
+  if requested_rank > current_rank + 1 then
+    raise exception 'Permission levels must be approved in order: Member → ADM → Manager → Director.';
+  end if;
+  if requested_rank = 4 then
+    raise exception 'Director access is assigned directly by an existing Director.';
+  end if;
+
+  select i.provider_id, i.identity_data
+    into identity_row
+  from auth.identities i
+  where i.user_id = auth.uid()
+    and i.provider = 'discord'
+  order by i.created_at desc
+  limit 1;
+
+  if identity_row.provider_id is null then
+    raise exception 'Discord sign-in is required for staff access.';
+  end if;
+
+  discord_name := coalesce(
+    identity_row.identity_data->>'global_name',
+    identity_row.identity_data->>'username',
+    'Discord user'
+  );
+
+  select s.id, s.name
+    into staff_row
+  from public.staff s
+  where s.discord_id = identity_row.provider_id
+    and s.active = true
+  limit 1;
+
+  insert into public.staff_access_requests
+    (user_id, discord_id, discord_username, requested_name, status, requested_access_level)
+  values
+    (auth.uid(), identity_row.provider_id, discord_name, coalesce(staff_row.name, discord_name), 'pending', p_requested_access_level)
+  returning id into request_id;
+
+  return request_id;
+exception
+  when unique_violation then
+    select id into request_id
+    from public.staff_access_requests
+    where user_id = auth.uid() and status = 'pending'
+    order by created_at desc limit 1;
+    return request_id;
+end;
+$$;
+
+create or replace function public.approve_staff_access_request(p_request_id uuid, p_access_level text default 'adm')
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  req record;
+  updated_count integer;
+begin
+  if not public.kng_schedule_can_manage() then
+    raise exception 'You do not have permission to approve staff access.';
+  end if;
+
+  if p_access_level not in ('member','adm','manager') then
+    raise exception 'Only Member, ADM or Manager access can be confirmed through the approval chain.';
+  end if;
+
+  if public.kng_schedule_access_rank() < case p_access_level
+      when 'member' then 2
+      when 'adm' then 3
+      when 'manager' then 4
+      else 99
+    end then
+    raise exception 'Security chain: ADM confirms Members; Manager confirms Members and ADMs; Director confirms Members, ADMs and Managers.';
+  end if;
+
+  select * into req
+  from public.staff_access_requests
+  where id = p_request_id
+  for update;
+
+  if req.id is null then
+    raise exception 'Access request not found.';
+  end if;
+
+  if req.status <> 'pending' then
+    raise exception 'This access request has already been decided.';
+  end if;
+
+  if coalesce(req.requested_access_level, 'member') <> p_access_level then
+    raise exception 'The approval level does not match the requested permission level.';
+  end if;
+
+  update public.staff_access
+     set access_level = p_access_level, active = true
+   where user_id = req.user_id;
+  get diagnostics updated_count = row_count;
+
+  if updated_count = 0 then
+    insert into public.staff_access (user_id, access_level, active)
+    values (req.user_id, p_access_level, true);
+  end if;
+
+  update public.staff_access_requests
+     set status = 'approved', requested_access_level = p_access_level,
+         review_note = 'Access confirmed by staff.', reviewed_by = auth.uid(), reviewed_at = now()
+   where id = p_request_id;
+
+  return true;
+end;
+$$;
+
+create or replace function public.reject_staff_access_request(p_request_id uuid, p_reason text default 'Access not approved')
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.kng_schedule_can_manage() then
+    raise exception 'You do not have permission to reject staff access.';
+  end if;
+
+  update public.staff_access_requests
+     set status = 'rejected', review_note = coalesce(nullif(trim(p_reason), ''), 'Access not approved'),
+         reviewed_by = auth.uid(), reviewed_at = now()
+   where id = p_request_id;
+
+  if not found then
+    raise exception 'Access request not found.';
+  end if;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.kng_schedule_access_rank() to authenticated;
+grant execute on function public.request_staff_access() to authenticated;
+grant execute on function public.approve_staff_access_request(uuid,text) to authenticated;
+grant execute on function public.reject_staff_access_request(uuid,text) to authenticated;

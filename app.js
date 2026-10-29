@@ -19,6 +19,7 @@ let opsView = localStorage.getItem("kng.opsView") || "schedule";
 let ops = { tracker: [], points: [], hungry: [], reductions: [], audit: [], security: [], prizes: [], helpers: [], prizeWins: [], timeouts: [], blocks: [] };
 let accessBlock = null;
 let currentTimeout = null;
+let accessRequests = [];
 let opsLoadErrors = {};
 
 
@@ -36,6 +37,7 @@ async function init() {
         await loadStaff();
         await loadEvents();
         await loadAccess();
+        await loadAccessRequests();
         await loadOpsData();
 
         render();
@@ -44,12 +46,14 @@ async function init() {
             currentUser = session?.user || null;
 
             await loadAccess();
+            await loadAccessRequests();
             await loadOpsData();
             render();
         });
 
         setInterval(async () => {
             await loadAccess();
+            await loadAccessRequests();
             await loadEvents();
             if (opsView !== "schedule") await loadOpsData();
             render();
@@ -166,19 +170,115 @@ async function loadAccess() {
 }
 
 
+async function loadAccessRequests() {
+    accessRequests = [];
+    if (!currentUser || !canApproveAccess()) return;
+
+    const { data, error } = await supabaseClient
+        .from("staff_access_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(250);
+
+    if (error) {
+        if (!String(error.message || "").includes("does not exist")) console.error("Access requests failed:", error);
+        return;
+    }
+    accessRequests = data || [];
+}
+
+function getDiscordIdentity() {
+    const identity = (currentUser?.identities || []).find(i => i.provider === "discord");
+    const data = identity?.identity_data || {};
+    const discordId = identity?.provider_id || data?.provider_id || data?.id || data?.sub || null;
+    const username = data?.global_name || data?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || "Discord user";
+    return { discordId: discordId ? String(discordId) : null, username: String(username) };
+}
+
+async function requestStaffAccess() {
+    if (!currentUser) return openLogin();
+    if (currentAccess) return;
+
+    const requestedLevel = nextRequestedAccessLevel();
+    if (!requestedLevel) return;
+    const { data, error } = await supabaseClient.rpc("request_staff_access", { p_requested_access_level: requestedLevel });
+    if (error) {
+        console.error(error);
+        showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Access</span><h2>Request failed</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">${escapeHtml(error.message)}</p><div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div></div>`);
+        return;
+    }
+
+    await loadAccessRequests();
+    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Access</span><h2>Request sent</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">Your Discord account has been sent to staff for confirmation.</p><div class="modal-footer"><button class="primary-button" onclick="closeModal();render();">Done</button></div></div>`);
+}
+
+
+async function approveAccessRequest(requestId, accessLevel) {
+    if (!canApproveAccess()) return;
+    const { error } = await supabaseClient.rpc("approve_staff_access_request", { p_request_id: requestId, p_access_level: accessLevel });
+    if (error) { alert(error.message); return; }
+    await loadAccessRequests();
+    await loadOpsData();
+    render();
+}
+
+async function rejectAccessRequest(requestId) {
+    if (!canApproveAccess()) return;
+    const reason = prompt("Reason for rejecting this access request:", "Not confirmed as KNG staff");
+    if (reason === null) return;
+    const { error } = await supabaseClient.rpc("reject_staff_access_request", { p_request_id: requestId, p_reason: reason });
+    if (error) { alert(error.message); return; }
+    await loadAccessRequests();
+    render();
+}
+
+function getPermissionLevel() {
+    // Signing in proves identity, not permission. Until staff explicitly
+    // confirms the account, an authenticated user remains PUBLIC.
+    if (!currentUser || !currentAccess) return "public";
+    return currentAccess.access_level || "public";
+}
+
+function permissionRank(level = getPermissionLevel()) {
+    return ({ public: 0, member: 1, adm: 2, manager: 3, director: 4 }[level] ?? 0);
+}
+
+function hasPermission(level) {
+    return permissionRank() >= permissionRank(level);
+}
+
 function canManage() {
-    return currentAccess &&
-        ["manager", "admin", "entertainment"].includes(currentAccess.access_level);
+    return hasPermission("adm");
 }
 
 function canEntertainment() {
-    return currentAccess &&
-        ["manager", "admin", "entertainment"].includes(currentAccess.access_level);
+    return hasPermission("adm");
 }
 
-
 function isAdmin() {
-    return currentAccess?.access_level === "admin";
+    return hasPermission("manager");
+}
+
+function isDirector() {
+    return getPermissionLevel() === "director";
+}
+
+function canApproveAccess() {
+    return hasPermission("adm");
+}
+
+function nextRequestedAccessLevel() {
+    const next = ({ public: "member", member: "adm", adm: "manager", manager: "director" })[getPermissionLevel()];
+    return next || null;
+}
+
+function availableGrantLevels() {
+    const rank = permissionRank();
+    return [
+        ["member", "Member", 1],
+        ["adm", "ADM", 2],
+        ["manager", "Manager", 3]
+    ].filter(([, , targetRank]) => rank >= targetRank + 1);
 }
 
 
@@ -231,13 +331,10 @@ function render() {
               `
             : `
                 <span class="mode-badge player-mode">
-                    PLAYER VIEW
+                    ${currentUser ? `${String(getPermissionLevel()).toUpperCase()} ACCESS` : "PUBLIC VIEW"}
                 </span>
 
-                <button class="header-button"
-                    onclick="openLogin()">
-                    Staff Login
-                </button>
+                ${currentUser ? `${nextRequestedAccessLevel() ? `<button class="header-button" onclick="requestStaffAccess()">Request ${String(nextRequestedAccessLevel()).toUpperCase()} Access</button>` : ""}<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}
               `
     }
 
@@ -251,9 +348,9 @@ function render() {
             </header>
 
 
-            <main class="schedule-main">
-
+            <div class="app-body">
                 ${operationsNavHtml()}
+                <main class="schedule-main">
 
                 <section class="calendar-toolbar">
 
@@ -309,7 +406,8 @@ function render() {
                     class="calendar-container">
                 </section>
 
-            </main>
+                </main>
+            </div>
 
         </div>
 
@@ -2206,7 +2304,7 @@ function showLoginMessage() {
                 <button
                     class="primary-button"
                     onclick="openLogin()">
-                    Staff Login
+                    Discord Login
                 </button>
 
             </div>
@@ -2221,74 +2319,44 @@ function showLoginMessage() {
    ========================================================= */
 
 function openLogin() {
-
     showModal(`
-        <div class="modal small-modal">
-
+        <div class="modal small-modal discord-login-modal">
             <div class="modal-header">
-
                 <div>
-                    <span class="modal-eyebrow">
-                        KNG Entertainment
-                    </span>
-
-                    <h2>Staff Login</h2>
+                    <span class="modal-eyebrow">KNG Entertainment</span>
+                    <h2>Discord Login</h2>
                 </div>
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
-
+                <button class="modal-close" onclick="closeModal()">×</button>
             </div>
 
+            <p class="modal-message">Sign in with Discord to identify your account. Login alone gives you no KNG permissions. Access is granted through a security chain: ADM confirms Members, Manager confirms Members and ADMs, and Director confirms Members, ADMs and Managers.</p>
+
+            <button class="discord-login-button" onclick="loginWithDiscord()">
+                <span class="discord-icon">◈</span>
+                Continue with Discord
+            </button>
+
+            <div class="login-divider"><span>or use existing account</span></div>
 
             <form onsubmit="login(event)">
-
-                <div class="form-field">
-                    <label>Email</label>
-
-                    <input
-                        id="loginEmail"
-                        type="email"
-                        autocomplete="email"
-                        required
-                    >
-                </div>
-
-
-                <div class="form-field">
-                    <label>Password</label>
-
-                    <input
-                        id="loginPassword"
-                        type="password"
-                        autocomplete="current-password"
-                        required
-                    >
-                </div>
-
-
-                <div id="loginError"
-                    class="form-error">
-                </div>
-
-
-                <div class="modal-footer">
-
-                    <button
-                        type="submit"
-                        class="primary-button">
-                        Sign In
-                    </button>
-
-                </div>
-
+                <div class="form-field"><label>Email</label><input id="loginEmail" type="email" autocomplete="email" required></div>
+                <div class="form-field"><label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
+                <div id="loginError" class="form-error"></div>
+                <div class="modal-footer"><button type="submit" class="primary-button">Sign In</button></div>
             </form>
-
         </div>
     `);
+}
+
+async function loginWithDiscord() {
+    const { error } = await supabaseClient.auth.signInWithOAuth({
+        provider: "discord",
+        options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+    if (error) {
+        const errorBox = document.getElementById("loginError");
+        if (errorBox) errorBox.textContent = error.message;
+    }
 }
 
 
@@ -2338,6 +2406,7 @@ async function login(event) {
     closeModal();
 
     await loadAccess();
+    await loadAccessRequests();
 
     render();
 }
@@ -2559,21 +2628,34 @@ window.login =
    ========================================================= */
 
 function operationsNavHtml() {
+    const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
-        ["schedule", "▦", "Schedule"],
-        ["dashboard", "◈", "Dashboard"],
-        ["actions", "⚡", "Actions & Interactions"],
-        ["points", "✣", "Points"],
-        ["logs", "◎", "Logs"],
-        ["security", "◉", "Security"],
-        ["prizes", "◇", "Prizes & Commands"]
+        ["schedule", "▦", "Schedule", 0],
+        ["dashboard", "◈", "Dashboard", 2],
+        ["actions", "⚡", "Actions & Interactions", 2],
+        ["points", "✣", "Points", 2],
+        ["logs", "◎", "Logs", 2],
+        ["security", "◉", "Security", 3],
+        ["prizes", "◇", "Prizes & Commands", 2]
     ];
-    return `<nav class="integrated-nav" aria-label="KNG operations">
-        ${items.map(([id, icon, label]) => `
-            <button class="integrated-nav-btn ${opsView === id ? "active" : ""}" onclick="switchOpsView('${id}')">
-                <span>${icon}</span>${label}
-            </button>`).join("")}
-    </nav>`;
+    if (canApproveAccess()) items.push(["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2]);
+    const rank = permissionRank();
+    const visible = items.filter(([, , , requiredRank]) => rank >= requiredRank);
+    return `<aside class="integrated-sidebar" aria-label="KNG navigation">
+        <div class="sidebar-section-label">KNG ENTERTAINMENT</div>
+        <nav class="integrated-sidebar-nav">
+            ${visible.map(([id, icon, label]) => `
+                <button class="integrated-nav-btn ${opsView === id ? "active" : ""}" onclick="switchOpsView('${id}')">
+                    <span class="nav-icon">${icon}</span><span>${label}</span>
+                </button>`).join("")}
+        </nav>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-access-card">
+            <span class="sidebar-access-label">CURRENT ACCESS</span>
+            <strong>${escapeHtml(String(getPermissionLevel()).toUpperCase())}</strong>
+            ${currentUser ? `<small>${escapeHtml(currentUser.email || "Discord account")}</small>` : `<small>Public visitor</small>`}
+        </div>
+    </aside>`;
 }
 
 function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
@@ -2585,13 +2667,17 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
         <div class="schedule-header-actions">
             ${canManage()
                 ? `<span class="mode-badge staff-mode">STAFF MODE</span><button class="header-button" onclick="logout()">Logout</button>`
-                : `<span class="mode-badge player-mode">PLAYER VIEW</span><button class="header-button" onclick="openLogin()">Staff Login</button>`}
+                : `<span class="mode-badge player-mode">PLAYER VIEW</span><button class="header-button" onclick="openLogin()">Discord Login</button>`}
         </div>
     </header>`;
 }
 
 async function switchOpsView(view) {
     if (view !== "schedule" && !currentUser) {
+        showLoginMessage();
+        return;
+    }
+    if (view === "access" && !canApproveAccess()) {
         showLoginMessage();
         return;
     }
@@ -2643,6 +2729,7 @@ function opsErrorNotice(name) {
 
 function renderOperations() {
     if (opsView === "schedule") { render(); return; }
+    if (opsView === "access" && !canApproveAccess()) { showLoginMessage(); return; }
     const titles = {
         dashboard: ["KNG Entertainment Dashboard", "Events, completions and staff operations"],
         actions: ["Actions & Interactions", "Tracker, hungry pool, reductions and helpers"],
@@ -2653,15 +2740,18 @@ function renderOperations() {
         logs: ["Logs", "Audit trail of operational changes"],
         security: ["Security", "Security events and audit visibility"],
         prizes: ["Prizes & Commands", "Prize wins and ready-to-copy commands"],
-        helpers: ["Helpers", "Assign additional staff helpers to events"]
+        helpers: ["Helpers", "Assign additional staff helpers to events"],
+        access: ["Access Requests", "Confirm Discord accounts and grant staff permissions"]
     };
     const [title, subtitle] = titles[opsView] || titles.dashboard;
     app.innerHTML = `<div class="schedule-app operations-app">
         ${opsHeader(title, subtitle)}
-        <main class="operations-main">
+        <div class="app-body operations-body">
             ${operationsNavHtml()}
-            <div class="operations-content">${renderOpsViewHtml()}</div>
-        </main>
+            <main class="operations-main">
+                <div class="operations-content">${renderOpsViewHtml()}</div>
+            </main>
+        </div>
         <div id="modalContainer"></div>
     </div>`;
     bindOpsHandlers();
@@ -2679,6 +2769,7 @@ function renderOpsViewHtml() {
         case "security": return renderOpsSecurity();
         case "prizes": return renderOpsPrizes();
         case "helpers": return renderOpsHelpers();
+        case "access": return renderOpsAccess();
         default: return `<div class="ops-card"><h3>Schedule</h3><p>Use the Schedule tab.</p></div>`;
     }
 }
@@ -2791,6 +2882,19 @@ function renderOpsPrizes() {
             ${opsCard("Prize catalogue", ops.prizes.length ? `<div class="prize-grid">${ops.prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0)}</strong><small>${escapeHtml(p.command_template || "")}</small></div>`).join("")}</div>` : `<div class="ops-empty">No prizes configured yet.</div>`)}
         </div>
         <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
+}
+
+function renderOpsAccess() {
+    const pending = accessRequests.filter(r => r.status === "pending");
+    const decided = accessRequests.filter(r => r.status !== "pending").slice(0, 50);
+    return `<div class="operations-main"><div class="operations-content">
+        ${opsCard("Pending staff access", pending.length ? `<div class="ops-list">${pending.map(r => `
+            <div class="ops-row access-request-row">
+                <div><b>${escapeHtml(r.requested_name || r.discord_username || "Discord user")}</b><small>Discord: ${escapeHtml(r.discord_username || "Unknown")} · ID: ${escapeHtml(r.discord_id || "Unknown")}</small><small>Requested: <strong>${escapeHtml(String(r.requested_access_level || "member").toUpperCase())}</strong> · ${formatOpsDateTime(r.created_at)}</small></div>
+                <div class="access-request-actions">${availableGrantLevels().some(([value]) => value === (r.requested_access_level || "member")) ? `<button class="primary-button small" onclick="approveAccessRequest('${r.id}', '${escapeAttribute(r.requested_access_level || "member")}')">Confirm ${escapeHtml(String(r.requested_access_level || "member").toUpperCase())}</button>` : ""}<button class="danger-button small" onclick="rejectAccessRequest('${r.id}')">Reject</button></div>
+            </div>`).join("")}</div>` : `<div class="ops-empty">No pending access requests. The queue is, for once, behaving itself.</div>`, `<span class="ops-pill">${pending.length} pending</span>`)}
+        ${opsCard("Recent decisions", decided.length ? `<div class="ops-list">${decided.map(r => `<div class="ops-row"><div><b>${escapeHtml(r.requested_name || r.discord_username || "Discord user")}</b><small>${escapeHtml(r.discord_id || "Unknown")} · ${escapeHtml(r.review_note || "")}</small></div><span class="ops-pill">${escapeHtml(r.status)}</span></div>`).join("")}</div>` : `<div class="ops-empty">No decisions yet.</div>`)}
+    </div></div>`;
 }
 
 function renderOpsHelpers() {
@@ -2996,6 +3100,10 @@ function formatOpsDateTime(value) {
 }
 
 window.switchOpsView = switchOpsView;
+window.loginWithDiscord = loginWithDiscord;
+window.requestStaffAccess = requestStaffAccess;
+window.approveAccessRequest = approveAccessRequest;
+window.rejectAccessRequest = rejectAccessRequest;
 window.openPrizeWinModal = openPrizeWinModal;
 window.copyCommand = copyCommand;
 

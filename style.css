@@ -1950,3 +1950,39 @@ body {
 .restricted-screen{min-height:100vh;display:grid;place-items:center;padding:30px}.restricted-card{max-width:520px;text-align:center;background:rgba(13,20,32,.94);border:1px solid var(--line);border-radius:18px;padding:38px;box-shadow:var(--shadow);display:grid;gap:12px}.restricted-card .schedule-logo{margin:0 auto}.restricted-card h1{margin:0}.restricted-card p{color:var(--muted);margin:0}.restricted-card small{color:#ff9aaa}.restricted-card .header-button{justify-self:center}
 .leaderboard-list .ops-row:first-child{border-color:rgba(255,215,0,.28)}
 @media(max-width:760px){.action-hub-grid{grid-template-columns:1fr}.quick-event-presets{overflow-x:auto;flex-wrap:nowrap}.quick-event{flex:0 0 auto}}
+
+/* Discord authentication + staff approval */
+.discord-login-modal .modal-message{margin-bottom:14px}
+.discord-login-button{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(135deg,#5865f2,#4752c4);color:#fff;border-radius:11px;padding:12px 15px;font:inherit;font-weight:900;cursor:pointer;box-shadow:0 10px 24px rgba(88,101,242,.24);transition:.16s ease}
+.discord-login-button:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 13px 28px rgba(88,101,242,.32)}
+.discord-icon{width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:rgba(255,255,255,.16);font-size:13px}
+.login-divider{display:flex;align-items:center;gap:10px;color:var(--muted-2);font-size:10px;text-transform:uppercase;letter-spacing:.1em;margin:18px 0}
+.login-divider::before,.login-divider::after{content:"";height:1px;flex:1;background:var(--line)}
+.access-request-row{align-items:flex-start}
+.access-request-actions{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap}
+.access-request-actions select{background:rgba(4,7,12,.72);border:1px solid var(--line-strong);color:var(--text);border-radius:9px;padding:8px 9px;font:inherit;font-size:10px}
+.primary-button.small,.danger-button.small{padding:8px 10px;font-size:10px}
+@media(max-width:760px){.access-request-row{flex-direction:column}.access-request-actions{width:100%;justify-content:flex-start}.access-request-actions select{flex:1;min-width:150px}}
+
+/* =========================================================
+   KNG ENTERTAINMENT · LEFT SIDEBAR NAVIGATION
+   ========================================================= */
+.app-body{display:flex;align-items:stretch;min-height:calc(100vh - 68px);width:100%}
+.integrated-sidebar{width:238px;flex:0 0 238px;padding:22px 14px 24px 18px;border-right:1px solid rgba(255,255,255,.08);background:linear-gradient(180deg,rgba(5,7,13,.84),rgba(5,7,13,.58));backdrop-filter:blur(18px);display:flex;flex-direction:column;position:sticky;top:68px;height:calc(100vh - 68px);z-index:20}
+.sidebar-section-label{font-size:10px;font-weight:950;letter-spacing:.16em;color:#ff8094;padding:0 10px 12px}
+.integrated-sidebar-nav{display:flex;flex-direction:column;gap:6px}
+.integrated-sidebar .integrated-nav-btn{width:100%;justify-content:flex-start;text-align:left;padding:11px 12px;border-radius:11px;font-size:12px;min-height:42px}
+.integrated-sidebar .integrated-nav-btn .nav-icon{width:21px;display:inline-grid;place-items:center;font-size:14px;color:#ff8094;flex:0 0 21px}
+.integrated-sidebar .integrated-nav-btn.active{box-shadow:8px 8px 28px rgba(214,31,58,.17),inset 0 0 0 1px rgba(255,255,255,.08)}
+.sidebar-spacer{flex:1}
+.sidebar-access-card{margin-top:18px;padding:13px;border:1px solid rgba(255,255,255,.09);background:rgba(13,20,32,.72);border-radius:13px;display:grid;gap:4px}
+.sidebar-access-label{font-size:9px;font-weight:950;letter-spacing:.13em;color:var(--muted-2)}
+.sidebar-access-card strong{font-size:16px;color:#fff}
+.sidebar-access-card small{font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.schedule-main{flex:1;min-width:0;width:auto}
+.operations-main{flex:1;min-width:0;width:auto;margin:0;padding:24px 28px 40px}
+.operations-body{min-height:calc(100vh - 68px)}
+.operations-content{width:100%;max-width:1400px;margin:0 auto}
+.ops-header{margin-bottom:0}
+@media(max-width:900px){.integrated-sidebar{width:205px;flex-basis:205px}.operations-main{padding:20px 16px 32px}}
+@media(max-width:700px){.app-body{display:block}.integrated-sidebar{position:sticky;top:68px;width:100%;height:auto;min-height:0;border-right:0;border-bottom:1px solid rgba(255,255,255,.08);padding:10px 12px;background:rgba(5,7,13,.92)}.sidebar-section-label{display:none}.integrated-sidebar-nav{display:flex;flex-direction:row;overflow-x:auto;padding-bottom:2px}.integrated-sidebar .integrated-nav-btn{width:auto;min-width:max-content;justify-content:center}.sidebar-spacer,.sidebar-access-card{display:none}.schedule-main,.operations-main{width:100%;padding-left:12px;padding-right:12px}}
