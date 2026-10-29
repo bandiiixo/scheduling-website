@@ -21,6 +21,9 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
+let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
+let ixData = { announcements: [], hof: [], goals: [] };
+let ixLoadErrors = {};
 
 
 /* =========================================================
@@ -39,6 +42,7 @@ async function init() {
         await loadAccess();
         await loadAccessRequests();
         await loadOpsData();
+        await loadInteractionData();
 
         render();
 
@@ -48,6 +52,7 @@ async function init() {
             await loadAccess();
             await loadAccessRequests();
             await loadOpsData();
+            await loadInteractionData();
             render();
         });
 
@@ -56,6 +61,7 @@ async function init() {
             await loadAccessRequests();
             await loadEvents();
             if (opsView !== "schedule") await loadOpsData();
+            await loadInteractionData();
             render();
         }, 60000);
 
@@ -287,6 +293,8 @@ function availableGrantLevels() {
    ========================================================= */
 
 function render() {
+    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
+    if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (accessBlock || currentTimeout) {
         renderAccessRestriction();
         return;
@@ -323,6 +331,8 @@ function render() {
                     onclick="openCreateEventModal()">
                     + Create Event
                 </button>
+
+                ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
 
                 <button class="header-button"
                     onclick="logout()">
@@ -1225,6 +1235,23 @@ function openCreateEventModal(date = null, hour = null) {
 }
 
 
+function openCreateMeetingModal() {
+    if (!isAdmin()) return;
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Management · Staff Meeting</span><h2>Add Meeting</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form onsubmit="createMeeting(event)"><div class="form-grid"><div class="form-field full"><label>Meeting title</label><input id="meetingTitle" required maxlength="120" placeholder="e.g. Management Meeting"></div><div class="form-field"><label>Date</label><input id="meetingDate" type="date" value="${formatDate(currentDate)}" required></div><div class="form-field"><label>Start time</label><input id="meetingStart" type="time" value="19:00" required></div><div class="form-field"><label>End time</label><input id="meetingEnd" type="time" value="20:00" required></div><div class="form-field"><label>Repeat</label><select id="meetingRepeat"><option value="none">Does not repeat</option><option value="weekly">Every week</option><option value="biweekly">Every 2 weeks</option><option value="monthly">Every month</option></select></div><div class="form-field"><label>Repeat until</label><input id="meetingRepeatUntil" type="date" value="${formatDate(new Date(Date.now()+90*86400000))}"></div><div class="form-field full"><label>Meeting notes</label><textarea id="meetingDescription" rows="5" maxlength="2000" placeholder="Agenda, attendees, notes..."></textarea></div></div><div id="meetingFormError" class="form-error"></div><div class="modal-footer"><button type="button" class="secondary-button" onclick="closeModal()">Cancel</button><button type="submit" class="primary-button">Add Meeting</button></div></form></div>`);
+}
+
+async function createMeeting(e) {
+    e.preventDefault(); if (!isAdmin()) return;
+    const title=document.getElementById("meetingTitle").value.trim(); const date=document.getElementById("meetingDate").value; const start=document.getElementById("meetingStart").value; const end=document.getElementById("meetingEnd").value; const repeat=document.getElementById("meetingRepeat").value; const until=document.getElementById("meetingRepeatUntil").value; const description=document.getElementById("meetingDescription").value.trim();
+    const err=document.getElementById("meetingFormError"); if(end<=start){err.textContent="End time must be later than start time."; return;}
+    const meetingType = eventTypes.find(t => String(t.name||"").toLowerCase() === "staff meeting") || eventTypes.find(t => String(t.name||"").toLowerCase() === "community meeting");
+    if (!meetingType) { err.textContent="Staff Meeting event type is missing."; return; }
+    const dates=buildRecurringDates(date, repeat, until); const recurrenceGroupId=crypto.randomUUID();
+    const rows=dates.map(d=>({title,event_type_id:meetingType.id,event_date:d,start_time:start,end_time:end,location:null,description:description||null,staff_required:0,visibility:"staff",recurrence_group_id:dates.length>1?recurrenceGroupId:null,recurrence_rule:repeat==="none"?null:repeat,status:"scheduled",is_meeting:true,created_by:currentUser?.id||null,updated_by:currentUser?.id||null}));
+    const {error}=await supabaseClient.from("events").insert(rows); if(error){err.textContent=error.message;return;}
+    await writeAudit("meeting.created",{title,dates,repeat}); closeModal(); await loadEvents(); render();
+}
+
 async function createEvent(event) {
 
     event.preventDefault();
@@ -1266,9 +1293,12 @@ async function createEvent(event) {
             "eventDescription"
         ).value.trim();
 
-    const visibility = document.getElementById("eventVisibility")?.value || "public";
+    let visibility = document.getElementById("eventVisibility")?.value || "public";
     const repeat = document.getElementById("eventRepeat")?.value || "none";
     const repeatUntil = document.getElementById("eventRepeatUntil")?.value || eventDate;
+    const selectedType = eventTypes.find(t => t.id === eventTypeId);
+    const isMeeting = ["staff meeting", "community meeting"].includes(String(selectedType?.name || "").toLowerCase());
+    if (isMeeting) visibility = "staff";
 
 
     if (endTime <= startTime) {
@@ -1294,6 +1324,8 @@ async function createEvent(event) {
         visibility,
         recurrence_group_id: dates.length > 1 ? recurrenceGroupId : null,
         recurrence_rule: repeat === "none" ? null : repeat,
+        status: "scheduled",
+        is_meeting: isMeeting,
         created_by: currentUser?.id || null,
         updated_by: currentUser?.id || null
     }));
@@ -1534,6 +1566,8 @@ function openEvent(eventId) {
                             </button>
 
                             <div class="modal-footer-right">
+
+                                ${event.status === "completed" ? `<span class="ops-pill">Completed</span>` : `<button class="secondary-button" onclick="markEventComplete('${event.id}')">Mark Complete</button>`}
 
                                 <button
                                     class="secondary-button"
@@ -1840,6 +1874,14 @@ async function updateEvent(formEvent, eventId) {
 /* =========================================================
    DELETE EVENT
    ========================================================= */
+
+async function markEventComplete(eventId) {
+    if (!canManage()) return;
+    const { error } = await supabaseClient.from("events").update({ status: "completed", updated_by: currentUser?.id || null }).eq("id", eventId);
+    if (error) return alert(error.message);
+    await writeAudit("event.completed", { event_id: eventId });
+    closeModal(); await loadEvents(); render();
+}
 
 async function deleteEvent(eventId) {
 
@@ -2528,6 +2570,9 @@ window.handleDateClick = handleDateClick;
 
 window.openCreateEventModal =
     openCreateEventModal;
+window.openCreateMeetingModal = openCreateMeetingModal;
+window.createMeeting = createMeeting;
+window.markEventComplete = markEventComplete;
 
 window.createEvent = createEvent;
 
@@ -2571,7 +2616,14 @@ function operationsNavHtml() {
     const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
         ["schedule", "▦", "Schedule", 0],
-        ["dashboard", "◈", "Dashboard", 2],
+        ["command-dashboard", "⌂", "Command Dashboard", 1],
+        ["interactions-leaderboard", "♛", "Leaderboard", 1],
+        ["announcements", "✦", "Announcements", 1],
+        ["hall-of-fame", "▣", "Hall of Fame", 1],
+        ["daily-goals", "◎", "Daily Goals", 1],
+        ["staff-roster", "♙", "Staff Roster", 1],
+        ["hungry", "🍽", "Hungry Pool", 1],
+        ["dashboard", "◈", "Operations Dashboard", 2],
         ["actions", "⚡", "Actions & Interactions", 2],
         ["points", "✣", "Points", 2],
         ["logs", "◎", "Logs", 2],
@@ -2585,7 +2637,7 @@ function operationsNavHtml() {
         <div class="sidebar-section-label">KNG ENTERTAINMENT</div>
         <nav class="integrated-sidebar-nav">
             ${visible.map(([id, icon, label]) => `
-                <button class="integrated-nav-btn ${opsView === id ? "active" : ""}" onclick="switchOpsView('${id}')">
+                <button class="integrated-nav-btn ${(opsView === id || ixView === id) ? "active" : ""}" onclick="switchOpsView('${id}')">
                     <span class="nav-icon">${icon}</span><span>${label}</span>
                 </button>`).join("")}
         </nav>
@@ -2621,7 +2673,16 @@ async function switchOpsView(view) {
         showLoginMessage();
         return;
     }
+    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
+    if (ixViews.includes(view)) {
+        ixView = view;
+        try { localStorage.setItem("kng.ixView", view); } catch (_) {}
+        await loadInteractionData();
+        render();
+        return;
+    }
     opsView = view;
+    if (view === "schedule") { ixView = ""; try { localStorage.removeItem("kng.ixView"); } catch (_) {} }
     try { localStorage.setItem("kng.opsView", view); } catch (_) {}
     if (view !== "schedule") await loadOpsData();
     render();
@@ -2668,10 +2729,18 @@ function opsErrorNotice(name) {
 }
 
 function renderOperations() {
+    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
+    if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView === "schedule") { render(); return; }
     if (opsView === "access" && !canApproveAccess()) { showLoginMessage(); return; }
     const titles = {
         dashboard: ["KNG Entertainment Dashboard", "Events, completions and staff operations"],
+        "command-dashboard": ["Command Dashboard", "KNG Interactions + Entertainment command centre"],
+        "interactions-leaderboard": ["Leaderboard", "Staff activity, events and points"],
+        announcements: ["Announcements", "Updates for the KNG community"],
+        "hall-of-fame": ["Hall of Fame", "Winner frames and event recognition"],
+        "daily-goals": ["Daily Goals", "Track your interaction target"],
+        "staff-roster": ["Staff Roster", "Current KNG Entertainment staff"],
         actions: ["Actions & Interactions", "Tracker, hungry pool, reductions and helpers"],
         tracker: ["Tracker", "Track staff activity and operational work"],
         points: ["Points", "Staff points, adjustments and leaderboard"],
@@ -2700,6 +2769,12 @@ function renderOperations() {
 function renderOpsViewHtml() {
     switch (opsView) {
         case "dashboard": return renderOpsDashboard();
+        case "command-dashboard": return renderInteractionDashboard();
+        case "interactions-leaderboard": return renderInteractionLeaderboard();
+        case "announcements": return renderAnnouncements();
+        case "hall-of-fame": return renderHallOfFame();
+        case "daily-goals": return renderDailyGoals();
+        case "staff-roster": return renderStaffRoster();
         case "actions": return renderOpsActionsHub();
         case "tracker": return renderOpsTracker();
         case "points": return renderOpsPoints();
@@ -2716,8 +2791,8 @@ function renderOpsViewHtml() {
 
 function renderOpsDashboard() {
     const today = formatDate(new Date());
-    const todayEvents = events.filter(e => e.event_date === today);
-    const completed = (allEvents || []).filter(isEventCompleted);
+    const todayEvents = events.filter(e => e.event_date === today && !e.is_meeting);
+    const completed = (allEvents || []).filter(e => !e.is_meeting && isEventCompleted(e));
     const counts = {};
     completed.forEach(e => {
         const key = e.title || e.event_types?.name || "Event";
@@ -2778,11 +2853,18 @@ function renderOpsPoints() {
 }
 
 function renderOpsHungry() {
+    const openEntries = ops.hungry.filter(x => x.status !== "completed");
     return `${opsErrorNotice("hungry")}
         <div class="ops-grid-two">
-            ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form>`) : ""}
-            ${opsCard("Open pool", ops.hungry.length ? `<div class="ops-list">${ops.hungry.map(x=>`<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small></div>${canManage()?`<button class="danger-button ops-delete-hungry" data-id="${x.id}">Remove</button>`:""}</div>`).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
-        </div>`;
+            ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form><small>Staff can claim an open slot. It is only completed when someone marks it complete.</small>`) : ""}
+            ${opsCard("Hungry Pool", openEntries.length ? `<div class="ops-list">${openEntries.map(x=>{
+                const claimed = x.status === "claimed";
+                const mine = x.claimed_by && currentUser && x.claimed_by === currentUser.id;
+                return `<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small>${x.notes ? `<small>${escapeHtml(x.notes)}</small>` : ""}${claimed ? `<small><strong>Claimed by ${escapeHtml(x.claimed_by_name || "Staff member")}</strong></small>` : `<small><span class="ops-pill">Open</span></small>`}</div><div class="ops-row-actions">${!claimed && currentUser && permissionRank() >= 1 ? `<button class="primary-button small ops-claim-hungry" data-id="${x.id}">Claim</button>` : ""}${mine ? `<button class="secondary-button small ops-unclaim-hungry" data-id="${x.id}">Unclaim</button>` : ""}${(mine || canManage()) && claimed ? `<button class="primary-button small ops-complete-hungry" data-id="${x.id}">Mark Complete</button>` : ""}${canManage() ? `<button class="danger-button small ops-delete-hungry" data-id="${x.id}">Remove</button>` : ""}</div></div>`;
+            }).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
+        </div>
+        ${opsCard("Completed hungry-pool work", ops.hungry.filter(x => x.status === "completed").length ? `<div class="ops-list">${ops.hungry.filter(x => x.status === "completed").map(x=>`<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · completed by ${escapeHtml(x.completed_by_name || "Staff")}</small></div><span class="ops-pill">Completed</span></div>`).join("")}</div>` : `<div class="ops-empty">Nothing has been marked complete yet.</div>`)}
+    `;
 }
 
 function renderOpsReductions() {
@@ -2860,6 +2942,9 @@ function bindOpsHandlers() {
     document.querySelectorAll(".copy-command").forEach(btn => btn.addEventListener("click", () => copyCommand(btn.dataset.command, btn)));
     document.querySelectorAll(".unblock-account").forEach(btn => btn.addEventListener("click", () => unblockAccount(btn.dataset.email)));
     document.querySelectorAll(".ops-delete-hungry").forEach(btn => btn.addEventListener("click", () => deleteHungry(btn.dataset.id)));
+    document.querySelectorAll(".ops-claim-hungry").forEach(btn => btn.addEventListener("click", () => claimHungry(btn.dataset.id)));
+    document.querySelectorAll(".ops-unclaim-hungry").forEach(btn => btn.addEventListener("click", () => unclaimHungry(btn.dataset.id)));
+    document.querySelectorAll(".ops-complete-hungry").forEach(btn => btn.addEventListener("click", () => completeHungry(btn.dataset.id)));
 }
 
 function openTrackerAddModal() {
@@ -2882,6 +2967,31 @@ async function submitPoints(e) {
 async function submitHungry(e) {
     e.preventDefault(); if(!canManage()) return; const payload=Object.fromEntries(new FormData(e.target).entries()); payload.created_by=currentUser.id;
     const { error }=await supabaseClient.from("ops_hungry").insert(payload); if(error) return alert(error.message); await writeAudit("hungry.created", payload); await loadOpsData(); render();
+}
+
+async function claimHungry(id) {
+    if (!currentUser || permissionRank() < 1) return;
+    const { data, error } = await supabaseClient.rpc("claim_hungry_slot", { p_id: id, p_claimed_by_name: getDiscordIdentity().username });
+    if (error) return alert(error.message);
+    await writeAudit("hungry.claimed", { id, claimed_by_name: getDiscordIdentity().username });
+    await loadOpsData(); render();
+}
+
+async function unclaimHungry(id) {
+    if (!currentUser) return;
+    const { error } = await supabaseClient.rpc("unclaim_hungry_slot", { p_id: id });
+    if (error) return alert(error.message);
+    await writeAudit("hungry.unclaimed", { id });
+    await loadOpsData(); render();
+}
+
+async function completeHungry(id) {
+    if (!currentUser) return;
+    if (!confirm("Mark this hungry-pool task as complete?")) return;
+    const { error } = await supabaseClient.rpc("complete_hungry_slot", { p_id: id, p_completed_by_name: getDiscordIdentity().username });
+    if (error) return alert(error.message);
+    await writeAudit("hungry.completed", { id });
+    await loadOpsData(); render();
 }
 
 async function deleteHungry(id) {
@@ -3010,9 +3120,7 @@ function buildRecurringDates(startDate, repeat, untilDate) {
 }
 
 function isEventCompleted(event) {
-    if (event.status === "completed") return true;
-    if (!event.event_date || !event.end_time) return false;
-    return new Date(`${event.event_date}T${event.end_time}`) < new Date();
+    return event.status === "completed";
 }
 
 function applyEventPreset(preset) {
@@ -3047,6 +3155,161 @@ window.rejectAccessRequest = rejectAccessRequest;
 window.openPrizeWinModal = openPrizeWinModal;
 window.copyCommand = copyCommand;
 
+
+
+/* =========================================================
+   KNG INTERACTIONS INTEGRATION
+   Recreates the useful Interactions screens shown in the source
+   website while keeping this app's Supabase/auth architecture.
+   ========================================================= */
+
+async function loadInteractionData() {
+    if (!currentUser) return;
+    const results = await Promise.all([
+        loadOpsTable("ix_announcements", () => supabaseClient.from("ix_announcements").select("*").order("created_at", {ascending:false}).limit(100)),
+        loadOpsTable("ix_hall_of_fame", () => supabaseClient.from("ix_hall_of_fame").select("*").order("created_at", {ascending:false}).limit(100)),
+        loadOpsTable("ix_daily_goals", () => supabaseClient.from("ix_daily_goals").select("*").eq("user_id", currentUser.id).order("goal_date", {ascending:false}).limit(30))
+    ]);
+    ixData = { announcements: results[0], hof: results[1], goals: results[2] };
+}
+
+function interactionHeader(title, subtitle) {
+    return `<header class="schedule-header ops-header interaction-header">
+        <div class="schedule-brand"><div class="schedule-logo">K</div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
+        <div class="schedule-header-actions">
+            <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
+            ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
+            ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
+            <button class="header-button" onclick="logout()">Logout</button><button class="header-button" onclick="goToday()">Today</button>
+        </div>
+    </header>`;
+}
+
+function renderInteractionView() {
+    if (!currentUser) { showLoginMessage(); return; }
+    const titles = {
+        "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
+        "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
+        announcements:["Announcements","Updates for the KNG community"],
+        "hall-of-fame":["Hall of Fame","Winner frames and event recognition"],
+        "daily-goals":["Daily Goals","Track your interaction target"],
+        "staff-roster":["Staff Roster","Current KNG Entertainment staff"]
+    };
+    const [title,subtitle]=titles[ixView] || titles["command-dashboard"];
+    app.innerHTML=`<div class="schedule-app operations-app ix-integration-app">${interactionHeader(title,subtitle)}<div class="app-body operations-body">${operationsNavHtml()}<main class="operations-main"><div class="operations-content">${renderIxViewHtml()}</div></main></div><div id="modalContainer"></div></div>`;
+    bindInteractionHandlers();
+}
+
+function renderIxViewHtml(){
+    switch(ixView){
+        case "command-dashboard": return renderInteractionDashboard();
+        case "interactions-leaderboard": return renderInteractionLeaderboard();
+        case "announcements": return renderAnnouncements();
+        case "hall-of-fame": return renderHallOfFame();
+        case "daily-goals": return renderDailyGoals();
+        case "staff-roster": return renderStaffRoster();
+        default: return renderInteractionDashboard();
+    }
+}
+
+function renderInteractionDashboard(){
+    const today=formatDate(new Date());
+    const todayEvents=allEvents.filter(e=>e.event_date===today && !e.is_meeting);
+    const myPoints=ops.points.filter(p=>String(p.staff_id||"")===String(currentUser?.id||"")).reduce((n,p)=>n+Number(p.amount||0),0);
+    const recent=[...ops.tracker].slice(0,8);
+    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e)).length;
+    const booked=ops.hungry.filter(x=>x.status!=="completed").length;
+    const announcements=ixData.announcements.slice(0,4);
+    return `<div class="ix-command-grid">
+      <div class="ix-stat-row">
+        <div class="ix-stat"><span>Interactions Today</span><strong>${todayEvents.length}</strong><small>scheduled entertainment events</small></div>
+        <div class="ix-stat"><span>Your Points</span><strong>${myPoints}</strong><small>recorded interaction points</small></div>
+        <div class="ix-stat"><span>Completed Events</span><strong>${completed}</strong><small>manually completed</small></div>
+        <div class="ix-stat"><span>Booked Today</span><strong>${booked}</strong><small>open hungry-pool slots</small></div>
+      </div>
+      <div class="ix-two-col">
+        ${ixPanel("Recent Interactions", recent.length ? `<div class="ix-feed">${recent.map((r,i)=>`<div class="ix-feed-row"><div class="ix-avatar">${escapeHtml((r.staff?.name||r.staff_name||"K").slice(0,1).toUpperCase())}</div><div><b>${escapeHtml(r.action||r.activity||r.task||"Interaction")}</b><small>${escapeHtml(r.staff?.name||r.staff_name||"Staff")} · ${formatOpsDateTime(r.created_at)}</small></div><span class="ix-pill">${Number(r.points||0)>0?`+${Number(r.points)}`:"LOG"}</span></div>`).join("")}</div>`:`<div class="ix-empty">No recent interactions recorded.</div>`)}
+        ${ixPanel("Announcements", announcements.length ? `<div class="ix-ann-list">${announcements.map(a=>`<article><b>${escapeHtml(a.title)}</b><small>${formatOpsDateTime(a.created_at)}</small><p>${escapeHtml(a.body||"")}</p></article>`).join("")}</div>`:`<div class="ix-empty">No announcements yet.</div>`, canManage()?`<button class="ix-small-btn" onclick="openAnnouncementModal()">+ New</button>`:"")}
+      </div>
+      <div class="ix-two-col">
+        ${ixPanel("Today's Schedule", todayEvents.length?`<div class="ix-schedule-list">${todayEvents.slice(0,10).map(e=>`<div><span>${formatTime(e.start_time)}</span><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`:`<div class="ix-empty">Nothing scheduled today.</div>`)}
+        ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('hungry')">Hungry Pool</button><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('daily-goals')">Daily Goals</button></div>`)}
+      </div>
+    </div>`;
+}
+
+function ixPanel(title,body,action=""){ return `<section class="ix-panel"><div class="ix-panel-head"><div><h3>${escapeHtml(title)}</h3></div>${action}</div>${body}</section>`; }
+
+function renderInteractionLeaderboard(){
+    const byStaff={};
+    staff.forEach(s=>byStaff[s.id]={name:s.name,discord:s.discord_id,points:0,events:0,interactions:0});
+    ops.points.forEach(p=>{ if(byStaff[p.staff_id]) byStaff[p.staff_id].points+=Number(p.amount||0); });
+    ops.tracker.forEach(t=>{ if(byStaff[t.staff_id]) byStaff[t.staff_id].interactions++; });
+    allEvents.filter(e=>!e.is_meeting && isEventCompleted(e)).forEach(e=>{ (e.event_staff||[]).forEach(es=>{ if(byStaff[es.staff_id]) byStaff[es.staff_id].events++; }); });
+    const rows=Object.values(byStaff).sort((a,b)=>(b.points+b.events*10+b.interactions)-(a.points+a.events*10+a.interactions));
+    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Staff Leaderboard</h3><small>Events, interactions and points</small></div></div><div class="ix-table">${rows.map((r,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-avatar">${escapeHtml((r.name||"K").slice(0,1).toUpperCase())}</div><div class="ix-grow"><b>${escapeHtml(r.name)}</b><small>${escapeHtml(r.discord||"")}</small></div><span><b>${r.events}</b><small>events</small></span><span><b>${r.interactions}</b><small>interactions</small></span><span class="ix-points">${r.points} pts</span></div>`).join("") || `<div class="ix-empty">No staff records yet.</div>`}</div></div>`;
+}
+
+function renderAnnouncements(){
+    const canEdit=canManage();
+    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Announcements</h3><small>Keep staff and players informed</small></div>${canEdit?`<button class="primary-button" onclick="openAnnouncementModal()">+ Announcement</button>`:""}</div><div class="ix-ann-grid">${ixData.announcements.map(a=>`<article class="ix-ann-card"><div><span class="ix-label">${escapeHtml(a.category||"UPDATE")}</span><small>${formatOpsDateTime(a.created_at)}</small></div><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body||"")}</p>${canEdit?`<button class="ix-danger-link" onclick="deleteAnnouncement('${a.id}')">Delete</button>`:""}</article>`).join("") || `<div class="ix-empty">No announcements yet.</div>`}</div></div>`;
+}
+
+function renderHallOfFame(){
+    const frames=["Original","Colour Wheel","Fire","Rainbow","Grey Scale","Custom"];
+    const current=ixData.hof[0];
+    return `<div class="ix-hof-layout"><div class="ix-hof-canvas"><div class="ix-frame-preview ${escapeHtml((current?.frame||"original").toLowerCase().replace(/\\s+/g,"-"))}"><div class="ix-hof-photo">${current?.image_url?`<img src="${escapeHtml(current.image_url)}" alt="Winner">`:`<span>Winner photo</span>`}</div><strong>KNG<br>HALL OF FAME</strong><small>EVENTS · PRIZES</small></div></div><div class="ix-hof-controls"><div class="ix-panel"><h3>Frame Library</h3><div class="ix-frame-grid">${frames.map(f=>`<button class="ix-frame-chip" onclick="selectHofFrame('${escapeHtml(f)}')">${escapeHtml(f)}</button>`).join("")}</div><label>Winner name<input id="hofWinnerName" value="${escapeHtml(current?.winner_name||"")}" placeholder="Winner name"></label><label>Winner photo URL<input id="hofImageUrl" value="${escapeHtml(current?.image_url||"")}" placeholder="https://..."></label><label>Frame colour<input id="hofColour" type="color" value="${escapeHtml(current?.frame_colour||"#ff2d78")}"></label><button class="primary-button" onclick="saveHallOfFame()">Save Winner</button>${canManage()?`<button class="header-button" onclick="openHofUpload()">Upload winner photo</button>`:""}</div></div></div>`;
+}
+
+function renderDailyGoals(){
+    const today=formatDate(new Date());
+    const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
+    const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
+    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${canManage()?`<button class="header-button" onclick="setDailyGoal()">Set Target</button>`:""}</div></div>`;
+}
+
+function renderStaffRoster(){
+    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Staff Roster</h3><small>${staff.length} active staff</small></div></div><div class="ix-table">${staff.map(s=>`<div class="ix-table-row"><div class="ix-avatar">${escapeHtml((s.name||"K").slice(0,1).toUpperCase())}</div><div class="ix-grow"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||"No Discord ID")}</small></div><span class="ix-pill">ACTIVE</span></div>`).join("") || `<div class="ix-empty">No active staff.</div>`}</div></div>`;
+}
+
+function bindInteractionHandlers(){ }
+
+async function openAnnouncementModal(){
+    if(!canManage()) return;
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Announcement</span><h2>New Announcement</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="ixAnnForm" class="ops-form"><input name="title" placeholder="Title" required maxlength="120"><select name="category"><option>UPDATE</option><option>IMPORTANT</option><option>EVENT</option><option>STAFF</option></select><textarea name="body" placeholder="Announcement" required rows="6"></textarea><button class="primary-button">Publish</button></form></div>`);
+    document.getElementById("ixAnnForm")?.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await supabaseClient.from("ix_announcements").insert({...d,created_by:currentUser.id});if(error)return alert(error.message);closeModal();await loadInteractionData();render();});
+}
+
+async function deleteAnnouncement(id){ if(!canManage()||!confirm("Delete this announcement?"))return;const {error}=await supabaseClient.from("ix_announcements").delete().eq("id",id);if(error)return alert(error.message);await loadInteractionData();render(); }
+function selectHofFrame(name){
+    document.querySelectorAll('.ix-frame-chip').forEach(b=>b.classList.toggle('active',b.textContent===name));
+    const preview=document.querySelector('.ix-frame-preview');
+    if(preview){ preview.className='ix-frame-preview '+String(name).toLowerCase().replace(/\s+/g,'-'); }
+}
+async function saveHallOfFame(){ if(!canManage())return;const winner_name=document.getElementById('hofWinnerName')?.value.trim();const image_url=document.getElementById('hofImageUrl')?.value.trim();const frame_colour=document.getElementById('hofColour')?.value||'#ff2d78';const frame=document.querySelector('.ix-frame-chip.active')?.textContent||'Original';const {error}=await supabaseClient.from('ix_hall_of_fame').insert({winner_name,image_url,frame,frame_colour,created_by:currentUser.id});if(error)return alert(error.message);await loadInteractionData();render();}
+function openHofUpload(){
+    if(!canManage()) return;
+    const input=document.createElement('input'); input.type='file'; input.accept='image/*';
+    input.onchange=async()=>{
+        const file=input.files?.[0]; if(!file) return;
+        const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+        const path=`${currentUser.id}/${Date.now()}.${ext}`;
+        const {error}=await supabaseClient.storage.from('kng-hall-of-fame').upload(path,file,{upsert:false,contentType:file.type});
+        if(error) return alert(error.message);
+        const {data}=supabaseClient.storage.from('kng-hall-of-fame').getPublicUrl(path);
+        const url=document.getElementById('hofImageUrl'); if(url) url.value=data.publicUrl;
+        alert('Winner photo uploaded. Click Save Winner to use it.');
+    };
+    input.click();
+}
+async function setDailyGoal(){ if(!canManage())return;const target=prompt('Daily point target','8');const n=Number(target);if(!Number.isFinite(n)||n<1)return;const today=formatDate(new Date());const {error}=await supabaseClient.from('ix_daily_goals').upsert({user_id:currentUser.id,goal_date:today,target_points:n,points_earned:0},{onConflict:'user_id,goal_date'});if(error)return alert(error.message);await loadInteractionData();render();}
+
+window.openAnnouncementModal=openAnnouncementModal;
+window.deleteAnnouncement=deleteAnnouncement;
+window.saveHallOfFame=saveHallOfFame;
+window.selectHofFrame=selectHofFrame;
+window.openHofUpload=openHofUpload;
+window.setDailyGoal=setDailyGoal;
 
 /* =========================================================
    START
