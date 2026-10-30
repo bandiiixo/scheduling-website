@@ -2392,10 +2392,10 @@ function operationsNavHtml() {
     const items = [
         // Public / community
         ["schedule", "▦", "Schedule", 0],
-        ["command-dashboard", "⌂", "Command Dashboard", 0],
+        ["command-dashboard", "⌂", "Command Dashboard", 1],
         ["event-suggestions", "✦", "Event Suggestions", 0],
-        ["interactions-leaderboard", "♛", "Leaderboard", 0],
-        ["hall-of-fame", "▣", "Hall of Fame", 0],
+        ["interactions-leaderboard", "♛", "Leaderboard", 1],
+        ["hall-of-fame", "▣", "Hall of Fame", 1],
         // Staff tools
         ["daily-goals", "◎", "Daily Goals", 1],
         ["staff-roster", "♙", "Staff Roster", 2],
@@ -2442,7 +2442,7 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
 }
 
 async function switchOpsView(view) {
-    const publicViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "event-suggestions"];
+    const publicViews = ["event-suggestions"];
     const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions"];
     if (view !== "schedule" && !currentUser && !publicViews.includes(view)) {
         showLoginMessage();
@@ -2998,7 +2998,12 @@ function interactionHeader(title, subtitle) {
 }
 
 function renderInteractionView() {
-    const publicViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "event-suggestions"];
+    const publicViews = ["event-suggestions"];
+    const staffOnlyViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame"];
+    if (staffOnlyViews.includes(ixView) && permissionRank() < 1) {
+        ixView = "event-suggestions";
+        try { localStorage.setItem("kng.ixView", "event-suggestions"); } catch (_) {}
+    }
     if (!currentUser && !publicViews.includes(ixView)) { showLoginMessage(); return; }
     const titles = {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
@@ -3339,11 +3344,30 @@ function openRosterExportModal() {
     if (!canManage()) return;
     const build = team => {
         const rows = rosterData.filter(r => r.team === team).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level) || String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
-        return ['director','manager','adm','aux','ld','sub_ld','member'].map(level => {
-            const members = rows.filter(r=>r.hierarchy_level===level);
-            if (!members.length) return '';
-            return `**${rosterLevelLabel(level, team).toUpperCase()}**\n${members.map(r=>`• ${r.staff?.name || 'Unknown'} | ${r.kng_id || 'N/A'} | ${r.staff?.discord_id || 'N/A'}`).join('\n')}`;
-        }).filter(Boolean).join('\n\n');
+        const groups = [
+            ['adm', 'ADM'],
+            ['aux', 'AUX'],
+            ['ld', 'LD'],
+            ['sub_ld', 'S.LD'],
+            ['member', 'MEMBER']
+        ];
+        const lines = [];
+        for (const [level, label] of groups) {
+            lines.push(label);
+            const members = rows.filter(r => r.hierarchy_level === level);
+            if (members.length) {
+                members.forEach(r => {
+                    const discordId = String(r.staff?.discord_id || r.discord_id || '').trim();
+                    lines.push(discordId ? `╰› <@${discordId}>` : '╰› [NO DISCORD ID]');
+                });
+            } else {
+                lines.push('╰›');
+            }
+            lines.push('');
+        }
+        const total = rows.filter(r => ['adm', 'aux', 'ld', 'sub_ld', 'member'].includes(r.hierarchy_level)).length;
+        lines.push(`${total} members total`);
+        return lines.join('\n');
     };
     const output = `**ACTIONS**\n${build('actions') || 'No members allocated.'}\n\n**INTERACTIONS**\n${build('interactions') || 'No members allocated.'}`;
     showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Discord Output</span><h2>Hierarchy Output</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><textarea id="rosterExportText" class="roster-export" rows=20 readonly>${escapeHtml(output)}</textarea><div class="modal-footer"><button class="secondary-button" onclick="copyRosterOutput()">Copy Output</button><button class="primary-button" onclick="closeModal()">Done</button></div></div>`);
