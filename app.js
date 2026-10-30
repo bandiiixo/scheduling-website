@@ -21,12 +21,12 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
-let ixView = localStorage.getItem("kng.ixView") || "";
-let hostPlannerDate = localStorage.getItem("kng.hostPlannerDate") || formatDate(new Date());
+let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
 let ixData = { hof: [], goals: [], suggestions: [] };
 let rosterData = [];
 let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
 if (opsView === "logs" || opsView === "announcements") opsView = "schedule";
+if (opsView === "points") opsView = "dashboard";
 if (ixView === "announcements" || ixView === "logs") ixView = "command-dashboard";
 let ixLoadErrors = {};
 
@@ -212,29 +212,7 @@ function getDiscordIdentity() {
     const data = identity?.identity_data || {};
     const discordId = identity?.provider_id || data?.provider_id || data?.id || data?.sub || null;
     const username = data?.global_name || data?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || "Discord user";
-    const displayName = String(currentUser?.user_metadata?.kng_display_name || username).trim() || username;
-    return { discordId: discordId ? String(discordId) : null, username: String(username), displayName };
-}
-
-function getKngDisplayName() {
-    return getDiscordIdentity().displayName;
-}
-
-function openProfileModal() {
-    if (!currentUser) return openLogin();
-    const current = getKngDisplayName();
-    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>My Profile</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">Choose the name other staff will see when you claim an event. Your Discord ID stays private and is only used internally.</p><form id="kngProfileForm" class="ops-form"><label>Display Name<input name="display_name" maxlength="80" value="${escapeAttribute(current)}" placeholder="Your KNG display name" required></label><button class="primary-button" type="submit">Save Display Name</button></form></div>`);
-    document.getElementById("kngProfileForm")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const name = String(new FormData(e.target).get("display_name") || "").trim();
-        if (!name) return alert("Please enter a display name.");
-        const { data, error } = await supabaseClient.auth.updateUser({ data: { kng_display_name: name } });
-        if (error) return alert(error.message);
-        currentUser = data?.user || currentUser;
-        closeModal();
-        await loadEvents();
-        render();
-    });
+    return { discordId: discordId ? String(discordId) : null, username: String(username) };
 }
 
 async function requestStaffAccess() {
@@ -2431,12 +2409,6 @@ window.handleModalBackdrop =
 
 window.openLogin =
     openLogin;
-window.openProfileModal =
-    openProfileModal;
-window.claimHostSlot =
-    claimHostSlot;
-window.unclaimHostSlot =
-    unclaimHostSlot;
 
 
 
@@ -2460,11 +2432,10 @@ function operationsNavHtml() {
         // Staff tools
         ["daily-goals", "◎", "Daily Goals", 1],
         ["staff-roster", "♙", "Staff Roster", 2],
-        ["hungry", "🎲", "Host an Event", 1],
+        ["hungry", "🍽", "Hungry Pool", 1],
         // Operations
         ["dashboard", "◈", "Operations Dashboard", 2],
         ["actions", "⚡", "Actions & Interactions", 2],
-        ["points", "✣", "Points", 2],
         ["prizes", "◇", "Prizes & Commands", 2],
         ["security", "◉", "Security", 3]
     ];
@@ -2483,7 +2454,7 @@ function operationsNavHtml() {
         <div class="sidebar-access-card">
             <span class="sidebar-access-label">CURRENT ACCESS</span>
             <strong>${escapeHtml(String(getPermissionLevel()).toUpperCase())}</strong>
-            ${currentUser ? `<small class="sidebar-display-name">${escapeHtml(getKngDisplayName())}</small><small>${escapeHtml(currentUser.email || "Discord account")}</small><button class="secondary-button small profile-button" onclick="openProfileModal()">Edit Display Name</button>` : `<small>Public visitor</small>`}
+            ${currentUser ? `<small>${escapeHtml(currentUser.email || "Discord account")}</small>` : `<small>Public visitor</small>`}
         </div>
     </aside>`;
 }
@@ -2593,7 +2564,7 @@ function renderOperations() {
         actions: ["Actions & Interactions", "Tracker, hungry pool, reductions and helpers"],
         tracker: ["Tracker", "Track staff activity and operational work"],
         points: ["Points", "Staff points, adjustments and leaderboard"],
-        hungry: ["Host an Event", "Randomise, plan and manually edit the entertainment schedule"],
+        hungry: ["Hungry Pool", "Open operational slots and availability"],
         reductions: ["Reductions", "Track staff reductions and reasons"],
         security: ["Security", "Security events and audit visibility"],
         prizes: ["Prizes & Commands", "Prize wins and ready-to-copy commands"],
@@ -2626,7 +2597,7 @@ function renderOpsViewHtml() {
         case "actions": return renderOpsActionsHub();
         case "tracker": return renderOpsTracker();
         case "points": return renderOpsPoints();
-        case "hungry": return renderHostEventPlanner();
+        case "hungry": return renderOpsHungry();
         case "reductions": return renderOpsReductions();
         case "logs": return renderOpsLogs();
         case "security": return renderOpsSecurity();
@@ -2637,9 +2608,22 @@ function renderOpsViewHtml() {
     }
 }
 
+function getEventStartDateTime(event) {
+    if (!event?.event_date || !event?.start_time) return null;
+    const date = new Date(`${event.event_date}T${event.start_time}`);
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function renderOpsDashboard() {
-    const today = formatDate(new Date());
-    const todayEvents = events.filter(e => e.event_date === today && !e.is_meeting);
+    const now = new Date();
+    const upcomingEvents = (events || [])
+        .filter(e => !e.is_meeting)
+        .map(e => ({ event: e, start: getEventStartDateTime(e) }))
+        .filter(x => x.start && x.start >= now)
+        .sort((a, b) => a.start - b.start)
+        .slice(0, 8)
+        .map(x => x.event);
+
     const completed = (allEvents || []).filter(e => !e.is_meeting && isEventCompleted(e));
     const counts = {};
     completed.forEach(e => {
@@ -2649,9 +2633,18 @@ function renderOpsDashboard() {
     const leaderboard = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const totalPoints = ops.points.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const activeReductions = ops.reductions.filter(r => r.active !== false).length;
+
+    const pointsTotals = {};
+    ops.points.forEach(p => {
+        const id = p.staff_id;
+        if (!pointsTotals[id]) pointsTotals[id] = { name: p.staff?.name || "Unknown", total: 0 };
+        pointsTotals[id].total += Number(p.amount || 0);
+    });
+    const pointsLeaderboard = Object.values(pointsTotals).sort((a,b) => b.total - a.total);
+
     return `${opsErrorNotice("tracker")}${opsErrorNotice("points")}
         <div class="ops-stats-grid">
-            <div class="ops-stat"><span>Today</span><strong>${todayEvents.length}</strong><small>scheduled events</small></div>
+            <div class="ops-stat"><span>Upcoming</span><strong>${upcomingEvents.length}</strong><small>next events</small></div>
             <div class="ops-stat"><span>Completed</span><strong>${completed.length}</strong><small>completed events</small></div>
             <div class="ops-stat"><span>Staff</span><strong>${staff.length}</strong><small>active staff</small></div>
             <div class="ops-stat"><span>Points</span><strong>${totalPoints}</strong><small>recorded adjustments</small></div>
@@ -2659,16 +2652,20 @@ function renderOpsDashboard() {
             <div class="ops-stat"><span>Reductions</span><strong>${activeReductions}</strong><small>active records</small></div>
         </div>
         <div class="ops-grid-two">
-            ${opsCard("Today's schedule", todayEvents.length ? `<div class="ops-list">${todayEvents.slice(0,8).map(e => `<div class="ops-row"><div><b>${escapeHtml(e.title)}</b><small>${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small></div><span class="ops-pill">${escapeHtml(e.event_types?.name || "Event")}</span></div>`).join("")}</div>` : `<div class="ops-empty">Nothing scheduled today.</div>`)}
+            ${opsCard("Upcoming events", upcomingEvents.length ? `<div class="ops-list">${upcomingEvents.map(e => `<div class="ops-row"><div><b>${escapeHtml(e.title)}</b><small>${formatDisplayDate(e.event_date)} · ${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small></div><span class="ops-pill">${escapeHtml(e.event_types?.name || "Event")}</span></div>`).join("")}</div>` : `<div class="ops-empty">No upcoming events are scheduled.</div>`)}
             ${opsCard("Completed event leaderboard", leaderboard.length ? `<div class="ops-list leaderboard-list">${leaderboard.map(([name,count],i)=>`<div class="ops-row"><div><b>#${i+1} · ${escapeHtml(name)}</b><small>Completed ${count} time${count===1?"":"s"}</small></div><span class="ops-pill">${count}</span></div>`).join("")}</div>` : `<div class="ops-empty">No completed events yet. Humanity survives another day.</div>`)}
-        </div>`;
+        </div>
+        ${canManage() ? `<div class="ops-grid-two points-management-grid">
+            ${opsCard("Points leaderboard", pointsLeaderboard.length ? `<div class="leaderboard">${pointsLeaderboard.map((r,i)=>`<div class="leader-row"><span class="rank">${i+1}</span><b>${escapeHtml(r.name)}</b><strong>${r.total}</strong></div>`).join("")}</div>` : `<div class="ops-empty">No points recorded yet.</div>`)}
+            ${opsCard("Adjust points", `<form id="pointsForm" class="ops-form"><select name="staff_id" required><option value="">Select staff</option>${staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select><input name="amount" type="number" min="-25" max="25" required placeholder="Points (-25 to 25)"><input name="reason" maxlength="200" required placeholder="Reason"><button class="primary-button">Apply adjustment</button><small>Maximum adjustment: 25 points. Management access only.</small></form>`)}
+        </div>` : ""}`;
 }
 
 function renderOpsActionsHub() {
     return `<div class="ops-grid-two">
         ${opsCard("Actions", `<div class="action-hub-grid">
             <button class="hub-action" onclick="switchOpsView('tracker')"><b>Tracker</b><small>Staff activity and operational work</small></button>
-            <button class="hub-action" onclick="switchOpsView('hungry')"><b>Host an Event</b><small>Randomise, plan and manually edit event slots</small></button>
+            <button class="hub-action" onclick="switchOpsView('hungry')"><b>Hungry Pool</b><small>Open operational slots</small></button>
             <button class="hub-action" onclick="switchOpsView('reductions')"><b>Reductions</b><small>Record staff reductions</small></button>
             <button class="hub-action" onclick="switchOpsView('helpers')"><b>Helpers</b><small>Assign event helpers</small></button>
         </div>`)}
@@ -2699,89 +2696,20 @@ function renderOpsPoints() {
         </div>`;
 }
 
-function hostEventPool() {
-    return [
-        "Arena Annihilation","Bar Fight","BMX Sprint","Boxes","Breaks Are Gone","Buggy Blitz","Bumper Cars","Cargo FFA","Compound FFA","Cops & Robbers","Crossy Road","Dead Man's Dash","Dirty Derby","Dress to Impress","Factory of Fear","Family Fortunes","Find the Animal","Football Trivia","Fortune's Choice","Grand Prix","Guess the Song","Got-A-Reason","Go-Kart Race","Hide My Ride","Higher or Lower","Hide-or-Die Chicken Coop","Hide-or-Die Chinatown","Hide-or-Die Hospital","Hide-or-Die University","KNG Got Talent","KNG Trivia","Long Haul Championship","Monster Truck Gauntlet","Musical Cars","Musical Statues","Need for Speed","Phantoms vs Runners","Pop Quiz","Ramps","Rubber Dinghy Rapids","Sandy Seeking","Scavenger Hunt","Simon Says","Slippy Slide","Subway Surfers","Taxi Dash","Harbour Havoc","Would You Rather","Word War","Clown Survival","Deadman's Pit","Ghost Rider Rally","Haunted Hospital","Headless Horseman","Infected","Scrapyard Showdown","The Haunting Grounds","The Slasher","Chemist Clash","KNG Boxing"
-    ];
-}
-function hostManualOnlyEvents() { return ["Club 77", "Vanilla"]; }
-function hostAllEventChoices() { return [...hostEventPool(), ...hostManualOnlyEvents()]; }
-function hostTimeToMinutes(value) { const [h,m] = String(value || "00:00").split(":").map(Number); return (h * 60) + m; }
-function hostMinutesToTime(minutes) { const h = Math.floor(minutes / 60) % 24; const m = minutes % 60; return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`; }
-function hostSlotOccupied(date, start, end, ignoreId = null) {
-    const s = hostTimeToMinutes(start), e = hostTimeToMinutes(end);
-    return (allEvents || []).some(ev => { if (ignoreId && String(ev.id) === String(ignoreId)) return false; if (ev.event_date !== date || ev.status === "cancelled") return false; const es=hostTimeToMinutes(ev.start_time), ee=hostTimeToMinutes(ev.end_time); return es < e && ee > s; });
-}
-function hostTypeIdFor(title) {
-    const lower = String(title || "").toLowerCase();
-    if (lower === "club 77" || lower === "vanilla") return eventTypes.find(t => String(t.name||"").toLowerCase() === "party")?.id || eventTypes.find(t => String(t.name||"").toLowerCase() === "event")?.id;
-    return eventTypes.find(t => String(t.name||"").toLowerCase() === "event")?.id || eventTypes[0]?.id;
-}
-function renderHostEventPlanner() {
-    const date = hostPlannerDate || formatDate(new Date());
-    const todayEvents = (allEvents || []).filter(e => e.event_date === date && e.status !== "cancelled").sort((a,b)=>String(a.start_time).localeCompare(String(b.start_time)));
-    const canEdit = canManage();
+function renderOpsHungry() {
+    const openEntries = ops.hungry.filter(x => x.status !== "completed");
     return `${opsErrorNotice("hungry")}
-        <div class="host-event-toolbar"><div><span class="host-eyebrow">KNG ENTERTAINMENT</span><h2>Host an Event</h2><p>Build the schedule, protect planned slots, then change anything manually when the schedule inevitably develops opinions.</p></div>${canEdit ? `<div class="host-toolbar-buttons"><button class="primary-button" onclick="randomiseHostSchedule()">🎲 Randomise Empty Slots</button><button class="secondary-button" onclick="toggleHostPanel('plannedHostPanel')">📅 Add Planned Event</button><button class="secondary-button" onclick="toggleHostPanel('manualHostPanel')">➕ Add Event</button></div>` : ""}</div>
-        <div id="plannedHostPanel" class="host-control-panel" hidden><div class="host-control-head"><div><b>Planned / Protected Event</b><small>Daily, weekly or biweekly events lock their slots so the randomiser cannot fill them.</small></div><button class="secondary-button small" onclick="toggleHostPanel('plannedHostPanel')">Close</button></div><form id="plannedHostForm" class="host-form-grid"><input name="title" maxlength="120" placeholder="Event name" required><select name="type_id" required>${eventTypes.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")}</select><input name="event_date" type="date" value="${date}" required><input name="start_time" type="time" value="18:00" required><input name="end_time" type="time" value="18:30" required><select name="repeat"><option value="none">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option></select><input name="repeat_until" type="date" value="${formatDate(new Date(Date.now()+90*86400000))}" required><input name="description" maxlength="500" placeholder="Optional note"><button class="primary-button" type="submit">Create &amp; Protect Slot(s)</button></form><div id="plannedHostError" class="form-error"></div></div>
-        <div id="manualHostPanel" class="host-control-panel" hidden><div class="host-control-head"><div><b>Manual Event</b><small>Club 77 and Vanilla are available here but are never chosen by the randomiser.</small></div><button class="secondary-button small" onclick="toggleHostPanel('manualHostPanel')">Close</button></div><form id="manualHostForm" class="host-form-grid"><select name="title" required>${hostAllEventChoices().map(x=>`<option value="${escapeAttribute(x)}">${escapeHtml(x)}</option>`).join("")}</select><input name="event_date" type="date" value="${date}" required><input name="start_time" type="time" value="18:00" required><input name="end_time" type="time" value="18:30" required><input name="description" maxlength="500" placeholder="Optional note"><label class="host-check"><input type="checkbox" name="locked"> Protect this slot from the randomiser</label><button class="primary-button" type="submit">Add Event</button></form><div id="manualHostError" class="form-error"></div></div>
-        <div class="host-randomiser-card"><div><b>Randomiser</b><small>Only empty slots are filled. Existing events are never overwritten by the randomiser.</small></div><div class="host-randomiser-controls"><label class="host-date-label">View / randomise date<input id="hostRandomDate" type="date" value="${date}" onchange="setHostPlannerDate(this.value)"></label><input id="hostRandomStart" type="time" value="18:00"><input id="hostRandomEnd" type="time" value="23:30"><select id="hostRandomInterval"><option value="30">30 minute slots</option><option value="60">60 minute slots</option></select></div></div>
-        <div class="host-schedule-card"><div class="host-section-head"><div><h3>Schedule</h3><small>Every slot can still be edited after randomisation.</small></div><span class="ops-pill">${todayEvents.length} scheduled</span></div><div id="hostScheduleList" class="host-slot-list">${todayEvents.length ? todayEvents.map(e => hostRenderSlot(e)).join("") : `<div class="ops-empty">No events are scheduled for today yet.</div>`}</div></div>
-        <div class="host-rules-grid"><div><b>🎲 Random</b><small>${hostEventPool().length} event choices</small></div><div><b>🎉 Manual only</b><small>Club 77 + Vanilla</small></div><div><b>🔒 Protected</b><small>Planned slots cannot be overwritten by the randomiser</small></div><div><b>✏️ Editable</b><small>You can change any slot after randomisation</small></div></div>`;
+        <div class="ops-grid-two">
+            ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form><small>Staff can claim an open slot. It is only completed when someone marks it complete.</small>`) : ""}
+            ${opsCard("Hungry Pool", openEntries.length ? `<div class="ops-list">${openEntries.map(x=>{
+                const claimed = x.status === "claimed";
+                const mine = x.claimed_by && currentUser && x.claimed_by === currentUser.id;
+                return `<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small>${x.notes ? `<small>${escapeHtml(x.notes)}</small>` : ""}${claimed ? `<small><strong>Claimed by ${escapeHtml(x.claimed_by_name || "Staff member")}</strong></small>` : `<small><span class="ops-pill">Open</span></small>`}</div><div class="ops-row-actions">${!claimed && currentUser && permissionRank() >= 1 ? `<button class="primary-button small ops-claim-hungry" data-id="${x.id}">Claim</button>` : ""}${mine ? `<button class="secondary-button small ops-unclaim-hungry" data-id="${x.id}">Unclaim</button>` : ""}${(mine || canManage()) && claimed ? `<button class="primary-button small ops-complete-hungry" data-id="${x.id}">Mark Complete</button>` : ""}${canManage() ? `<button class="danger-button small ops-delete-hungry" data-id="${x.id}">Remove</button>` : ""}</div></div>`;
+            }).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
+        </div>
+        ${opsCard("Completed hungry-pool work", ops.hungry.filter(x => x.status === "completed").length ? `<div class="ops-list">${ops.hungry.filter(x => x.status === "completed").map(x=>`<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · completed by ${escapeHtml(x.completed_by_name || "Staff")}</small></div><span class="ops-pill">Completed</span></div>`).join("")}</div>` : `<div class="ops-empty">Nothing has been marked complete yet.</div>`)}
+    `;
 }
-function hostEventStartDate(e) {
-    const date = String(e.event_date || "");
-    const time = String(e.start_time || "00:00").slice(0, 5);
-    return new Date(`${date}T${time}:00`);
-}
-
-function hostCanUnclaim(e) {
-    if (!currentUser || String(e.host_claimed_by || "") !== String(currentUser.id || "")) return false;
-    const start = hostEventStartDate(e).getTime();
-    if (!Number.isFinite(start)) return false;
-    return Date.now() < start - (60 * 60 * 1000);
-}
-
-function hostRenderSlot(e) {
-    const source = e.host_source === "random" ? "Random" : e.host_source === "planned" ? "Planned / Protected" : "Manual / Existing";
-    const locked = e.host_locked || e.host_source === "planned";
-    const claimed = Boolean(e.host_claimed_by || e.host_claimed_discord);
-    const mine = claimed && currentUser && String(e.host_claimed_by || "") === String(currentUser.id || "");
-    const claimedDisplayName = mine ? getKngDisplayName() : (e.host_claimed_name || "Staff");
-    const claimLabel = claimed ? `Claimed by ${escapeHtml(claimedDisplayName)}` : "";
-    const claimButton = currentUser && permissionRank() >= 1 && !claimed ? `<button class="primary-button small host-claim-btn" onclick="claimHostSlot('${e.id}')">🎤 Claim</button>` : "";
-    const unclaimButton = mine && hostCanUnclaim(e) ? `<button class="secondary-button small host-unclaim-btn" onclick="unclaimHostSlot('${e.id}')">↩ Unclaim</button>` : "";
-    const unclaimLocked = mine && !hostCanUnclaim(e) ? `<span class="host-unclaim-locked" title="Unclaiming closes one hour before the event starts">🔒 Locked</span>` : "";
-    return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}${claimLabel ? ` · <span class="host-claimed">${claimLabel}</span>` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${claimButton}${unclaimButton}${unclaimLocked}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`;
-}
-
-async function claimHostSlot(id) {
-    if (!currentUser || permissionRank() < 1) return alert("You must be signed in as KNG staff to claim an event.");
-    const { data, error } = await supabaseClient.rpc("claim_event_host_slot", { p_event_id: id });
-    if (error) return alert(error.message);
-    if (data === false) return alert("That event has already been claimed by another staff member.");
-    await loadEvents();
-    render();
-}
-
-async function unclaimHostSlot(id) {
-    if (!currentUser) return;
-    const event = (allEvents || []).find(e => String(e.id) === String(id));
-    if (event && !hostCanUnclaim(event)) return alert("You can only unclaim an event more than one hour before it starts.");
-    const { data, error } = await supabaseClient.rpc("unclaim_event_host_slot", { p_event_id: id });
-    if (error) return alert(error.message);
-    if (data === false) return alert("You cannot unclaim this event.");
-    await loadEvents();
-    render();
-}
-
-function setHostPlannerDate(value){ if(!value)return; hostPlannerDate=value; try{localStorage.setItem("kng.hostPlannerDate",value);}catch(_){} render(); }
-function toggleHostPanel(id) { const el=document.getElementById(id); if(el) el.hidden=!el.hidden; }
-async function submitPlannedHostEvent(e){ e.preventDefault(); if(!canManage())return; const d=Object.fromEntries(new FormData(e.target).entries()), err=document.getElementById("plannedHostError"); err.textContent=""; if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time."; if(d.repeat!=="none"&&d.repeat_until<d.event_date)return err.textContent="Repeat until must be on or after the first date."; const dates=buildRecurringDates(d.event_date,d.repeat,d.repeat_until); const blocked=dates.filter(x=>hostSlotOccupied(x,d.start_time,d.end_time)); if(blocked.length)return err.textContent=`These dates already have an event in that slot: ${blocked.join(", ")}`; const group=dates.length>1?crypto.randomUUID():null; const rows=dates.map(x=>({title:d.title.trim(),event_type_id:d.type_id,event_date:x,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,location:null,staff_required:0,visibility:"public",recurrence_group_id:group,recurrence_rule:d.repeat==="none"?null:d.repeat,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"planned",host_locked:true})); const {error}=await supabaseClient.from("events").insert(rows); if(error)return err.textContent=error.message; await writeAudit("host.planned_created",{title:d.title,dates,repeat:d.repeat}); await loadEvents(); render(); }
-async function submitManualHostEvent(e){ e.preventDefault(); if(!canManage())return; const d=Object.fromEntries(new FormData(e.target).entries()), err=document.getElementById("manualHostError"); err.textContent=""; if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time."; if(hostSlotOccupied(d.event_date,d.start_time,d.end_time))return err.textContent="That time slot already has an event. Edit the existing slot instead."; const typeId=hostTypeIdFor(d.title); if(!typeId)return err.textContent="No usable Event type exists in the database."; const payload={title:d.title,event_type_id:typeId,event_date:d.event_date,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,location:null,staff_required:0,visibility:"public",recurrence_group_id:null,recurrence_rule:null,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"manual",host_locked:d.locked==="on"}; const {error}=await supabaseClient.from("events").insert(payload); if(error)return err.textContent=error.message; await writeAudit("host.manual_created",payload); await loadEvents(); render(); }
-async function randomiseHostSchedule(){ if(!canManage())return; const date=document.getElementById("hostRandomDate")?.value,start=document.getElementById("hostRandomStart")?.value||"18:00",end=document.getElementById("hostRandomEnd")?.value||"23:30",interval=Math.max(30,Number(document.getElementById("hostRandomInterval")?.value||30)); if(!date||hostTimeToMinutes(end)<=hostTimeToMinutes(start))return alert("Choose a valid randomiser time range."); const typeId=hostTypeIdFor("Event"); if(!typeId)return alert("No Event type exists in the database."); const choices=hostEventPool(),rows=[]; let previous=""; for(let m=hostTimeToMinutes(start);m+interval<=hostTimeToMinutes(end);m+=interval){const a=hostMinutesToTime(m),b=hostMinutesToTime(m+interval);if(hostSlotOccupied(date,a,b))continue;const available=choices.filter(x=>x!==previous),title=available[Math.floor(Math.random()*available.length)];previous=title;rows.push({title,event_type_id:typeId,event_date:date,start_time:a,end_time:b,description:"Randomised by KNG Entertainment Host an Event",location:null,staff_required:0,visibility:"public",recurrence_group_id:null,recurrence_rule:null,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"random",host_locked:false});} if(!rows.length)return alert("There are no empty slots in that range to randomise."); const {error}=await supabaseClient.from("events").insert(rows); if(error)return alert(error.message); await writeAudit("host.randomised",{date,start,end,interval,created:rows.map(r=>r.title)}); await loadEvents(); render(); }
-function openHostEdit(id){ if(!canManage())return; const e=allEvents.find(x=>String(x.id)===String(id)); if(!e)return; const titleOptions=hostAllEventChoices().map(x=>`<option value="${escapeAttribute(x)}" ${x===e.title?"selected":""}>${escapeHtml(x)}</option>`).join(""); showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Host an Event</span><h2>Edit Event Slot</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="hostEditForm" class="ops-form"><label>Event<select name="title">${titleOptions}</select></label><label>Date<input name="event_date" type="date" value="${escapeAttribute(e.event_date)}" required></label><label>Start<input name="start_time" type="time" value="${escapeAttribute(String(e.start_time||"").slice(0,5))}" required></label><label>End<input name="end_time" type="time" value="${escapeAttribute(String(e.end_time||"").slice(0,5))}" required></label><label>Note<input name="description" maxlength="500" value="${escapeAttribute(e.description||"")}" placeholder="Optional note"></label><label class="host-check"><input type="checkbox" name="locked" ${e.host_locked||e.host_source==="planned"?"checked":""}> Protect this slot from randomiser</label><div id="hostEditError" class="form-error"></div><div class="modal-footer"><button type="button" class="secondary-button" onclick="closeModal()">Cancel</button><button type="button" class="danger-button" onclick="deleteHostEvent('${e.id}')">Delete</button><button type="submit" class="primary-button">Save Changes</button></div></form></div>`); document.getElementById("hostEditForm")?.addEventListener("submit",async ev=>{ev.preventDefault();const d=Object.fromEntries(new FormData(ev.target).entries()),err=document.getElementById("hostEditError");err.textContent="";if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time.";if(hostSlotOccupied(d.event_date,d.start_time,d.end_time,e.id))return err.textContent="That new slot overlaps another event.";const typeId=hostTypeIdFor(d.title);const payload={title:d.title,event_type_id:typeId||e.event_type_id,event_date:d.event_date,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,updated_by:currentUser.id,host_locked:d.locked==="on"};const {error}=await supabaseClient.from("events").update(payload).eq("id",e.id);if(error)return err.textContent=error.message;await writeAudit("host.slot_updated",{event_id:e.id,title:d.title,date:d.event_date,start:d.start_time,end:d.end_time});closeModal();await loadEvents();render();}); }
-async function deleteHostEvent(id){if(!canManage()||!confirm("Delete this event slot?"))return;const {error}=await supabaseClient.from("events").delete().eq("id",id);if(error)return alert(error.message);await writeAudit("host.slot_deleted",{event_id:id});closeModal();await loadEvents();render();}
 
 function renderOpsReductions() {
     return `${opsErrorNotice("reductions")}
@@ -2810,9 +2738,19 @@ function renderOpsSecurity() {
 }
 
 function renderOpsPrizes() {
-    const wins=ops.prizeWins||[], allowed=["dinheirosujo","dollars","vipevento1"], prizes=(ops.prizes||[]).filter(p=>allowed.includes(String(p.code||"").toLowerCase()));
-    return `${opsErrorNotice("prizes")}<div class="ops-toolbar prize-tabs"><button class="integrated-nav-btn active">🏆 Prize Win</button><button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button></div><div class="ops-grid-two prize-page-grid">${canManage()?opsCard("Event Winner",`<form id="prizeWinPageForm" class="ops-form prize-win-page-form"><label>In-game ID<input name="discord_id" maxlength="50" placeholder="e.g. 33333" required></label><label>Type<select name="prize_id" required><option value="">Select prize type</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select></label><label>Amount<input id="prizeWinAmount" name="amount" type="number" readonly placeholder="Auto-filled from type"></label><label>Reason<input name="reason" maxlength="160" placeholder="e.g. Event Winner" required></label><label>Command<div id="prizeWinPageCommand" class="command-preview">Enter the ID, choose a type and enter a reason.</div></label><div class="prize-command-actions"><button type="button" class="secondary-button" id="copyPrizePageCommand" disabled>Copy command</button><button type="submit" class="primary-button">Record Win &amp; Generate Command</button></div><div id="prizeWinPageError" class="form-error"></div></form>`):""}${opsCard("Prize catalogue",prizes.length?`<div class="prize-grid">${prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0).toLocaleString()}</strong><small>!additem ID ${escapeHtml(p.code)} ${Number(p.amount||0)} Reason</small></div>`).join("")}</div><small>Choose a prize type on the left. The amount and command code fill automatically.</small>`:`<div class="ops-empty">No prize types configured. Run the migration to seed the three event prizes.</div>`)}</div><div id="commandVault">${opsCard("Prize wins & command vault",wins.length?`<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>In-game ID</th><th>Prize</th><th>Reason</th><th>Command</th><th>Done</th><th>Won</th></tr></thead><tbody>${wins.map(w=>`<tr class="${w.completed?"prize-win-complete":""}"><td>${escapeHtml(w.discord_id||"Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label||"Prize")}</td><td>${escapeHtml(w.reason||"")}</td><td><code class="command-code">${escapeHtml(w.command||"")}</code></td><td><label class="prize-done"><input type="checkbox" class="prize-done-toggle" data-id="${w.id}" ${w.completed?"checked":""}><span>${w.completed?"Done":"Pending"}</span></label></td><td>${formatOpsDateTime(w.created_at)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
+    const wins = ops.prizeWins || [];
+    return `${opsErrorNotice("prizes")}
+        <div class="ops-toolbar prize-tabs">
+            <button class="integrated-nav-btn active" onclick="openPrizeWinModal()">🏆 Prize Win</button>
+            <button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button>
+        </div>
+        <div class="ops-grid-two">
+            ${canManage() ? opsCard("Prize catalogue", `<form id="prizeForm" class="ops-form"><input name="label" maxlength="100" placeholder="Prize name" required><input name="code" maxlength="80" placeholder="Item code" required><input name="amount" type="number" min="1" required placeholder="Amount"><input name="command_template" maxlength="300" placeholder="Command template, e.g. /giveitem {discord_id} {code} {amount}" value="/giveitem {discord_id} {code} {amount}"><button class="primary-button">Add prize</button><small>Placeholders: {discord_id}, {name}, {code}, {amount}</small></form>`) : ""}
+            ${opsCard("Prize catalogue", ops.prizes.length ? `<div class="prize-grid">${ops.prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0)}</strong><small>${escapeHtml(p.command_template || "")}</small></div>`).join("")}</div>` : `<div class="ops-empty">No prizes configured yet.</div>`)}
+        </div>
+        <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
 }
+
 function renderOpsAccess() {
     const pending = accessRequests.filter(r => r.status === "pending");
     const decided = accessRequests.filter(r => r.status !== "pending").slice(0, 50);
@@ -2840,11 +2778,9 @@ function bindOpsHandlers() {
     });
     document.getElementById("openTrackerAdd")?.addEventListener("click", openTrackerAddModal);
     document.getElementById("pointsForm")?.addEventListener("submit", submitPoints);
-    document.getElementById("plannedHostForm")?.addEventListener("submit", submitPlannedHostEvent);
-    document.getElementById("manualHostForm")?.addEventListener("submit", submitManualHostEvent);
+    document.getElementById("hungryForm")?.addEventListener("submit", submitHungry);
     document.getElementById("reductionForm")?.addEventListener("submit", submitReduction);
     document.getElementById("prizeForm")?.addEventListener("submit", submitPrize);
-    bindPrizePageHandlers();
     document.getElementById("helperForm")?.addEventListener("submit", submitHelper);
     document.getElementById("timeoutForm")?.addEventListener("submit", submitTimeout);
     document.getElementById("blockForm")?.addEventListener("submit", submitBlock);
@@ -2990,9 +2926,46 @@ async function unblockAccount(email) {
     await loadOpsData(); render();
 }
 
-function bindPrizePageHandlers(){const form=document.getElementById("prizeWinPageForm");if(!form)return;const update=()=>{const prize=ops.prizes.find(p=>p.id===form.prize_id.value&&["dinheirosujo","dollars","vipevento1"].includes(String(p.code||"").toLowerCase())),amount=document.getElementById("prizeWinAmount"),box=document.getElementById("prizeWinPageCommand"),copy=document.getElementById("copyPrizePageCommand");if(amount)amount.value=prize?Number(prize.amount||0):"";const command=prize&&form.discord_id.value.trim()&&form.reason.value.trim()?`!additem ${form.discord_id.value.trim()} ${prize.code} ${Number(prize.amount||0)} ${form.reason.value.trim()}`:"Enter the ID, choose a type and enter a reason.";if(box)box.textContent=command;if(copy){copy.disabled=command.startsWith("Enter the ID");copy.dataset.command=command;}};form.addEventListener("input",update);form.addEventListener("change",update);document.getElementById("copyPrizePageCommand")?.addEventListener("click",function(){copyCommand(this.dataset.command,this);});form.addEventListener("submit",submitPrizeWinPage);document.querySelectorAll(".prize-done-toggle").forEach(cb=>cb.addEventListener("change",()=>markPrizeDone(cb.dataset.id,cb.checked)));update();}
-async function submitPrizeWinPage(e){e.preventDefault();if(!canManage())return;const form=e.target,data=new FormData(form),discord_id=String(data.get("discord_id")||"").trim(),reason=String(data.get("reason")||"").trim(),prize_id=String(data.get("prize_id")||""),prize=ops.prizes.find(p=>p.id===prize_id&&["dinheirosujo","dollars","vipevento1"].includes(String(p.code||"").toLowerCase())),err=document.getElementById("prizeWinPageError");if(err)err.textContent="";if(!discord_id||!prize||!reason){if(err)err.textContent="Enter an in-game ID, choose a prize and enter a reason.";return;}const command=`!additem ${discord_id} ${prize.code} ${Number(prize.amount||0)} ${reason}`,payload={prize_id,recipient_name:discord_id,discord_id,amount:Number(prize.amount||0),reason,command,won_by:currentUser.id,completed:false};const {error}=await supabaseClient.from("ops_prize_wins").insert(payload);if(error){if(err)err.textContent=error.message;return;}await writeAudit("prize.won",payload);await loadOpsData();render();}
-async function markPrizeDone(id,done){if(!canManage())return;const payload={completed:done,completed_at:done?new Date().toISOString():null,completed_by:done?currentUser.id:null},{error}=await supabaseClient.from("ops_prize_wins").update(payload).eq("id",id);if(error)return alert(error.message);await writeAudit(done?"prize.completed":"prize.reopened",{id});await loadOpsData();render();}
+async function openPrizeWinModal() {
+    if (!canManage()) return showLoginMessage();
+    const prizes = ops.prizes || [];
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Record Prize Win</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form"><input name="recipient_name" maxlength="100" placeholder="Winner name" required><input name="discord_id" maxlength="50" placeholder="Discord / in-game ID" required><select name="prize_id" required><option value="">Select prize</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)} · ${escapeHtml(p.code)} · ${Number(p.amount||0)}</option>`).join("")}</select><div class="command-preview" id="commandPreview">Select a prize to generate the command.</div><button class="primary-button">Record Win &amp; Generate Command</button></form></div>`);
+    document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
+}
+
+function buildPrizeCommand(prize, name, discordId) {
+    const template = prize?.command_template || "/giveitem {discord_id} {code} {amount}";
+    return template.replaceAll("{discord_id}", discordId).replaceAll("{name}", name).replaceAll("{code}", prize?.code || "").replaceAll("{amount}", String(prize?.amount || 0));
+}
+
+function updatePrizeCommandPreview() {
+    const f = document.getElementById("prizeWinForm");
+    if (!f) return;
+    const prize = ops.prizes.find(p=>p.id === f.prize_id.value);
+    const command = buildPrizeCommand(prize, f.recipient_name.value.trim(), f.discord_id.value.trim());
+    const box = document.getElementById("commandPreview");
+    if (box) box.textContent = command;
+}
+
+async function submitPrizeWin(e) {
+    e.preventDefault();
+    if (!canManage()) return;
+    const data = new FormData(e.target);
+    const recipient_name = String(data.get("recipient_name") || "").trim();
+    const discord_id = String(data.get("discord_id") || "").trim();
+    const prize_id = String(data.get("prize_id") || "");
+    const prize = ops.prizes.find(p=>p.id === prize_id);
+    if (!prize) return alert("Select a prize.");
+    const command = buildPrizeCommand(prize, recipient_name, discord_id);
+    const payload = { prize_id, recipient_name, discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id };
+    const { error } = await supabaseClient.from("ops_prize_wins").insert(payload);
+    if (error) return alert(error.message);
+    await writeAudit("prize.won", payload);
+    closeModal(); await loadOpsData(); render();
+}
+
 async function copyCommand(command, button) {
     try { await navigator.clipboard.writeText(command); button.textContent = "Copied"; setTimeout(()=>button.textContent="Copy",1200); }
     catch (_) { alert(command); }
@@ -3052,7 +3025,7 @@ window.loginWithDiscord = loginWithDiscord;
 window.requestStaffAccess = requestStaffAccess;
 window.approveAccessRequest = approveAccessRequest;
 window.rejectAccessRequest = rejectAccessRequest;
-window.openPrizeWinModal = () => switchOpsView("prizes");
+window.openPrizeWinModal = openPrizeWinModal;
 window.copyCommand = copyCommand;
 window.submitCrashoutSettings = submitCrashoutSettings;
 

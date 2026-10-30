@@ -8,6 +8,7 @@ create extension if not exists pgcrypto;
 -- PERMISSIONS
 -- =========================================================
 
+drop function if exists public.kng_schedule_access_rank();
 create or replace function public.kng_schedule_access_rank()
 returns integer
 language sql stable security definer
@@ -62,116 +63,6 @@ alter table public.events add column if not exists winner_name text;
 alter table public.events add column if not exists completion_notes text;
 alter table public.events add column if not exists completed_at timestamptz;
 alter table public.events add column if not exists completed_by uuid references auth.users(id) on delete set null;
-alter table public.events add column if not exists host_source text not null default 'existing';
-alter table public.events add column if not exists host_locked boolean not null default false;
-alter table public.events add column if not exists host_claimed_by uuid references auth.users(id) on delete set null;
-alter table public.events add column if not exists host_claimed_discord text;
-alter table public.events add column if not exists host_claimed_name text;
-alter table public.events add column if not exists host_claimed_at timestamptz;
-alter table public.events drop constraint if exists events_host_source_check;
-alter table public.events add constraint events_host_source_check check (host_source in ('existing','random','manual','planned'));
-
-
--- Event host claiming: any confirmed KNG staff member can claim one scheduled slot.
--- The Discord ID is taken from the signed-in Discord identity and matched to staff.
-create or replace function public.claim_event_host_slot(p_event_id uuid)
-returns boolean
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_discord_id text;
-  v_staff_name text;
-  v_display_name text;
-begin
-  if auth.uid() is null then
-    raise exception 'Sign in required.';
-  end if;
-
-  select i.provider_id into v_discord_id
-  from auth.identities i
-  where i.user_id = auth.uid() and i.provider = 'discord'
-  order by i.created_at desc
-  limit 1;
-
-  v_discord_id := nullif(trim(coalesce(v_discord_id, '')), '');
-  if v_discord_id is null then
-    raise exception 'No Discord account is linked to this login.';
-  end if;
-
-  select s.name into v_staff_name
-  from public.staff s
-  where s.discord_id = v_discord_id and s.active = true
-  limit 1;
-
-  v_display_name := nullif(trim(coalesce(
-    (select u.raw_user_meta_data->>'kng_display_name' from auth.users u where u.id = auth.uid()),
-    v_staff_name,
-    'Staff'
-  )), '');
-
-  update public.events
-  set host_claimed_by = auth.uid(),
-      host_claimed_discord = v_discord_id,
-      host_claimed_name = left(coalesce(v_display_name, 'Staff'), 120),
-      host_claimed_at = now(),
-      updated_by = auth.uid()
-  where id = p_event_id
-    and status = 'scheduled'
-    and host_claimed_by is null;
-
-  if not found then
-    return false;
-  end if;
-
-  return true;
-end;
-$$;
-
-grant execute on function public.claim_event_host_slot(uuid) to authenticated;
-
--- Staff may unclaim their own event only until one hour before the local
--- Europe/London start time. The Discord ID remains stored internally.
-create or replace function public.unclaim_event_host_slot(p_event_id uuid)
-returns boolean
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  if auth.uid() is null then
-    raise exception 'Sign in required.';
-  end if;
-
-  update public.events
-  set host_claimed_by = null,
-      host_claimed_discord = null,
-      host_claimed_name = null,
-      host_claimed_at = null,
-      updated_by = auth.uid()
-  where id = p_event_id
-    and status = 'scheduled'
-    and host_claimed_by = auth.uid()
-    and now() < ((event_date + start_time) at time zone 'Europe/London') - interval '1 hour';
-
-  if not found then
-    return false;
-  end if;
-
-  return true;
-end;
-$$;
-
-grant execute on function public.unclaim_event_host_slot(uuid) to authenticated;
-
--- Repair older claims that stored the Discord ID as the visible name.
-update public.events e
-set host_claimed_name = s.name
-from public.staff s
-where e.host_claimed_discord = s.discord_id
-  and s.active = true
-  and coalesce(e.host_claimed_name, '') ~ '^[0-9]+$';
 
 update public.events set visibility = 'public' where visibility is null or visibility not in ('public','staff');
 update public.events set status = 'scheduled' where status is null or status not in ('scheduled','completed','cancelled');
@@ -307,13 +198,6 @@ create table if not exists public.ops_prizes (
   amount integer not null check (amount > 0), active boolean not null default true, created_by uuid, created_at timestamptz not null default now()
 );
 alter table public.ops_prizes add column if not exists command_template text not null default '/giveitem {discord_id} {code} {amount}';
-
--- The three standard event prizes used by Prizes & Commands.
-insert into public.ops_prizes(label, code, amount, command_template) values
-  ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} {reason}'),
-  ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} {reason}'),
-  ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} {reason}')
-on conflict (code) do update set label=excluded.label, amount=excluded.amount, command_template=excluded.command_template, active=true;
 create table if not exists public.ops_helpers (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   staff_id uuid not null references public.staff(id) on delete cascade, note text, created_by uuid, created_at timestamptz not null default now(), unique(event_id, staff_id)
@@ -322,10 +206,6 @@ create table if not exists public.ops_prize_wins (
   id uuid primary key default gen_random_uuid(), prize_id uuid not null references public.ops_prizes(id) on delete restrict,
   recipient_name text not null, discord_id text not null, amount integer not null default 1, command text not null, won_by uuid, created_at timestamptz not null default now()
 );
-alter table public.ops_prize_wins add column if not exists reason text not null default 'Event Winner';
-alter table public.ops_prize_wins add column if not exists completed boolean not null default false;
-alter table public.ops_prize_wins add column if not exists completed_at timestamptz;
-alter table public.ops_prize_wins add column if not exists completed_by uuid references auth.users(id) on delete set null;
 create table if not exists public.ops_timeouts (
   id uuid primary key default gen_random_uuid(), email text not null, expires_at timestamptz not null,
   reason text, created_by uuid, created_at timestamptz not null default now()

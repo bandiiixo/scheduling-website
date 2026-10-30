@@ -1,53 +1,41 @@
-KNG ENTERTAINMENT UPDATE
+KNG ENTERTAINMENT FULL FIX PACK - FIXES APPLIED
 
-This pack preserves the existing KNG Entertainment app and adds:
+1. Staff-only event visibility now follows the requested hierarchy:
+   MEMBER+ can see staff-only events/meetings; PUBLIC cannot.
+   This is enforced in both the UI and Supabase RLS, not just hidden in the browser.
 
-1. HOST AN EVENT
-- Hungry Pool is replaced with Host an Event.
-- Randomises empty 30-minute or 60-minute slots.
-- Random pool contains the supplied Events Hub list, ending with KNG Boxing.
-- The randomiser never selects Club 77 or Vanilla.
-- The same event is never selected directly next to itself during one randomisation run.
-- Existing events are never overwritten by the randomiser.
-- Any slot can still be manually edited afterwards.
+2. Staff meeting permissions fixed:
+   Only MANAGER+ can create, edit or delete staff meetings.
+   ADM can still manage normal Entertainment events.
 
-2. PLANNED / PROTECTED EVENTS
-- Add one-time, daily, weekly or biweekly events.
-- Planned slots are locked/protected from the randomiser.
-- Existing pre-planned events are also safe because the randomiser only fills empty slots.
+3. Recurring event validation fixed:
+   Repeat-until dates cannot be earlier than the first event/meeting date.
 
-3. MANUAL EVENTS
-- Club 77 and Vanilla can be added manually.
-- Any supplied random event can also be added manually.
-- Manual slots can optionally be protected.
+4. Hall of Fame fixed:
+   Missing-table errors now show an in-page setup message instead of the old browser schema-cache alert.
+   Winner photo position and zoom are saved and restored.
+   Frame mode, colour, hue and intensity are stored.
+   Added hex, RGB, hue and intensity controls.
 
-4. PRIZES & COMMANDS
-- Prize Win is now an on-page form rather than a pop-out.
-- Three standard prize types are seeded:
-  Dirty Money = dinheirosujo = 500000
-  Dollars = dollars = 500000
-  Event VIP = vipevento1 = 1
-- In-game ID, prize type, amount and reason produce:
-  !additem ID CODE AMOUNT Reason
-- Command has a Copy button.
-- Recorded prize wins have a Done checkbox for when the command has been given in Discord.
-- Fixed the missing ops_prize_wins.reason database column error.
+5. Daily Goals fixed:
+   Missing-table errors now show an in-page setup message instead of a browser alert.
 
-IMPORTANT:
-Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql once in the Supabase SQL Editor before deploying this pack.
-Do not delete the existing app assets.
+6. Kick-off flow fixed:
+   Kick-off reason defaults to Inactivity and blank reasons fall back to Inactivity.
 
-CLAIM FEATURE (2026-10-30)
-- Added Claim button to every Host an Event slot for signed-in KNG staff.
-- Claim records the current Discord account's Discord ID, staff name and claim time against the event.
-- The same slot cannot be claimed twice.
-- Claimed slots display the staff member and Discord ID.
-- Added the claim RPC and event columns to the complete migration SQL.
+7. Operations migration fixed:
+   Adds/repairs all required operations tables and policies.
+   Adds the missing Hall of Fame/Daily Goals schema.
+   Adds persistent Hall of Fame photo positioning.
+   Restricts staff-only event reads at database level.
 
+8. Existing features were retained:
+   Schedule calendar, Discord login, access hierarchy, recurring events, Party/Event/Battle Royale/Community Meeting presets, event completion, attendance/winners, leaderboards, Actions/Interactions roster, Tracker, Hungry Pool, Reductions, Helpers, Points, Prize Win, Commands/Copy, Security, Crashout protection, access requests, feedback/suggestions and Hall of Fame.
 
-DISPLAY NAME + UNCLAIM PATCH
-- Added staff-editable KNG display names.
-- Claim labels no longer expose Discord IDs.
-- Added one-hour-before-start unclaim rule.
-- Added secure Supabase RPC for unclaiming only the current user's claim.
-- Added repair for older claims that displayed numeric Discord IDs.
+DASHBOARD UPDATE - 2026-10-30
+- Removed the standalone Points tab from the sidebar.
+- Moved the Points leaderboard and Adjust Points form into Operations Dashboard.
+- Adjust Points is only rendered for ADM and above.
+- Operations Dashboard now shows the next 8 upcoming events from the current browser time instead of the first events of the day.
+- The upcoming list includes events from later dates when needed and refreshes with the existing 60-second app refresh.
+- Existing full Schedule page and event data are unchanged.

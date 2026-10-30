@@ -2073,29 +2073,3 @@ body {
 .hof-range-label input[type=range]{width:100%;padding:0!important}
 .hof-range-label small{color:#777f94;text-align:right}
 @media(max-width:600px){.hof-colour-top{grid-template-columns:42px 1fr}.hof-rgb{grid-column:2;justify-self:start}.hof-range-label{grid-template-columns:52px 1fr 34px}}
-
-/* =========================================================
-   HOST AN EVENT PLANNER
-   ========================================================= */
-.host-event-toolbar{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:18px;padding:22px;border:1px solid rgba(255,45,91,.28);border-radius:18px;background:rgba(9,14,25,.86);box-shadow:0 16px 40px rgba(0,0,0,.18)}
-.host-eyebrow{display:block;font-size:10px;letter-spacing:.18em;color:#ff6f91;font-weight:800;margin-bottom:5px}
-.host-event-toolbar h2{margin:0 0 6px;font-size:25px}.host-event-toolbar p{margin:0;color:#8e9bb2;max-width:760px}
-.host-toolbar-buttons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.host-control-panel{margin:0 0 16px;padding:18px;border:1px solid rgba(255,45,91,.22);border-radius:16px;background:rgba(8,12,22,.92)}
-.host-control-panel[hidden]{display:none}
-.host-control-head,.host-section-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:14px}.host-control-head b,.host-section-head h3{display:block;margin:0}.host-control-head small,.host-section-head small{display:block;color:#8290a9;margin-top:4px}
-.host-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.host-form-grid input,.host-form-grid select{min-width:0}.host-form-grid .primary-button{align-self:end}.host-check{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 12px;border:1px solid #283247;border-radius:10px;color:#b6c0d2;font-size:12px}.host-check input{width:auto}
-.host-randomiser-card{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:16px 18px;margin-bottom:16px;border:1px solid #273145;border-radius:16px;background:rgba(10,15,27,.9)}.host-randomiser-card b{display:block}.host-randomiser-card small{display:block;color:#7f8da5;margin-top:4px}.host-randomiser-controls{display:flex;gap:8px;flex-wrap:wrap}.host-randomiser-controls input,.host-randomiser-controls select{min-width:145px}
-.host-schedule-card{padding:18px;border:1px solid #263146;border-radius:18px;background:rgba(8,13,24,.9)}.host-slot-list{display:grid;gap:8px}.host-slot{display:grid;grid-template-columns:92px 1fr auto;align-items:center;gap:14px;padding:12px 14px;border:1px solid #273247;border-radius:12px;background:#101725}.host-slot-locked{border-color:rgba(255,45,91,.4);background:linear-gradient(90deg,rgba(255,45,91,.08),rgba(16,23,37,.96))}.host-slot-time{font-weight:800;color:#ff7895}.host-slot-time small{display:block;color:#77869f;font-weight:500;margin-top:2px}.host-slot-main b{display:block}.host-slot-main small{display:block;color:#8491a8;margin-top:3px}.host-slot-actions{display:flex;align-items:center;gap:8px}.host-lock{font-size:13px}
-.host-rules-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.host-rules-grid>div{padding:15px;border:1px solid #252f42;border-radius:14px;background:rgba(8,13,23,.84)}.host-rules-grid b{display:block}.host-rules-grid small{display:block;color:#7f8ca2;margin-top:5px;line-height:1.45}
-.prize-win-page-form label{display:block;font-size:11px;color:#9aa7bc;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.prize-win-page-form label input,.prize-win-page-form label select{margin-top:6px}.prize-command-actions{display:flex;gap:8px;align-items:center}.prize-command-actions .primary-button{flex:1}.prize-done{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;color:#aeb9ca}.prize-done input{accent-color:#ff2d5b}.prize-win-complete td{opacity:.62}.prize-win-complete .command-code{text-decoration:line-through;text-decoration-color:rgba(255,45,91,.7)}
-@media (max-width:900px){.host-event-toolbar,.host-randomiser-card{flex-direction:column}.host-toolbar-buttons,.host-randomiser-controls{width:100%;justify-content:flex-start}.host-form-grid,.host-rules-grid{grid-template-columns:1fr 1fr}.host-slot{grid-template-columns:70px 1fr}.host-slot-actions{grid-column:2;justify-content:flex-start}.prize-page-grid{grid-template-columns:1fr!important}}
-@media (max-width:600px){.host-form-grid,.host-rules-grid{grid-template-columns:1fr}.host-event-toolbar h2{font-size:21px}}
-.host-date-label{display:flex;flex-direction:column;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#8d9ab0;font-weight:700}.host-date-label input{margin-top:0}
-
-/* KNG profile + event claim controls */
-.sidebar-display-name{font-weight:800;color:#f2f5fb!important;font-size:12px!important;margin-top:5px}
-.profile-button{margin-top:9px;width:100%;justify-content:center}
-.host-unclaim-btn{border-color:rgba(255,255,255,.14)!important;color:#d7deea!important;background:rgba(255,255,255,.045)!important}
-.host-unclaim-btn:hover{border-color:rgba(255,45,91,.55)!important;color:#fff!important;background:rgba(255,45,91,.12)!important}
-.host-unclaim-locked{font-size:10px;color:#69758b;white-space:nowrap;padding:7px 8px;border:1px solid rgba(255,255,255,.07);border-radius:8px}
