@@ -17,12 +17,19 @@ create table if not exists public.ix_hall_of_fame (
   winner_name text not null,
   image_url text,
   frame text not null default 'Original',
-  frame_colour text not null default '#ff2d78',
+  frame_colour text not null default '#22D3EE',
+  frame_mode text not null default 'none',
+  hue integer not null default 180 check (hue between 0 and 359),
+  intensity integer not null default 100 check (intensity between 0 and 100),
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now()
 );
 
 create index if not exists ix_hof_created_idx on public.ix_hall_of_fame(created_at desc);
+
+alter table public.ix_hall_of_fame add column if not exists frame_mode text not null default 'none';
+alter table public.ix_hall_of_fame add column if not exists hue integer not null default 180;
+alter table public.ix_hall_of_fame add column if not exists intensity integer not null default 100;
 
 create table if not exists public.ix_daily_goals (
   id uuid primary key default gen_random_uuid(),

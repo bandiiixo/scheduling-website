@@ -24,6 +24,7 @@ let opsLoadErrors = {};
 let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
 let ixData = { announcements: [], hof: [], goals: [] };
 let ixLoadErrors = {};
+let hofEditor = { frame: "Original", mode: "none", hue: 310, intensity: 100, colour: "#22D3EE", photo: null, photoX: 0, photoY: 0, photoZoom: 1, dragging: false, dragStartX: 0, dragStartY: 0, photoStartX: 0, photoStartY: 0, frameImage: null, photoImage: null, ready: false };
 
 
 /* =========================================================
@@ -2676,14 +2677,21 @@ async function switchOpsView(view) {
     const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
     if (ixViews.includes(view)) {
         ixView = view;
-        try { localStorage.setItem("kng.ixView", view); } catch (_) {}
-        await loadInteractionData();
+        opsView = "";
+        try {
+            localStorage.setItem("kng.ixView", view);
+            localStorage.setItem("kng.opsView", "");
+        } catch (_) {}
+        await Promise.all([loadInteractionData(), loadOpsData()]);
         render();
         return;
     }
+    ixView = "";
     opsView = view;
-    if (view === "schedule") { ixView = ""; try { localStorage.removeItem("kng.ixView"); } catch (_) {} }
-    try { localStorage.setItem("kng.opsView", view); } catch (_) {}
+    try {
+        localStorage.removeItem("kng.ixView");
+        localStorage.setItem("kng.opsView", view);
+    } catch (_) {}
     if (view !== "schedule") await loadOpsData();
     render();
 }
@@ -3198,6 +3206,7 @@ function renderInteractionView() {
     const [title,subtitle]=titles[ixView] || titles["command-dashboard"];
     app.innerHTML=`<div class="schedule-app operations-app ix-integration-app">${interactionHeader(title,subtitle)}<div class="app-body operations-body">${operationsNavHtml()}<main class="operations-main"><div class="operations-content">${renderIxViewHtml()}</div></main></div><div id="modalContainer"></div></div>`;
     bindInteractionHandlers();
+    if (ixView === "hall-of-fame") initHallOfFameEditor();
 }
 
 function renderIxViewHtml(){
@@ -3256,9 +3265,63 @@ function renderAnnouncements(){
 }
 
 function renderHallOfFame(){
-    const frames=["Original","Colour Wheel","Fire","Rainbow","Grey Scale","Custom"];
-    const current=ixData.hof[0];
-    return `<div class="ix-hof-layout"><div class="ix-hof-canvas"><div class="ix-frame-preview ${escapeHtml((current?.frame||"original").toLowerCase().replace(/\\s+/g,"-"))}"><div class="ix-hof-photo">${current?.image_url?`<img src="${escapeHtml(current.image_url)}" alt="Winner">`:`<span>Winner photo</span>`}</div><strong>KNG<br>HALL OF FAME</strong><small>EVENTS · PRIZES</small></div></div><div class="ix-hof-controls"><div class="ix-panel"><h3>Frame Library</h3><div class="ix-frame-grid">${frames.map(f=>`<button class="ix-frame-chip" onclick="selectHofFrame('${escapeHtml(f)}')">${escapeHtml(f)}</button>`).join("")}</div><label>Winner name<input id="hofWinnerName" value="${escapeHtml(current?.winner_name||"")}" placeholder="Winner name"></label><label>Winner photo URL<input id="hofImageUrl" value="${escapeHtml(current?.image_url||"")}" placeholder="https://..."></label><label>Frame colour<input id="hofColour" type="color" value="${escapeHtml(current?.frame_colour||"#ff2d78")}"></label><button class="primary-button" onclick="saveHallOfFame()">Save Winner</button>${canManage()?`<button class="header-button" onclick="openHofUpload()">Upload winner photo</button>`:""}</div></div></div>`;
+    const current=ixData.hof[0] || {};
+    const savedColour = current.frame_colour || "#22D3EE";
+    hofEditor.frame = current.frame || "Original";
+    hofEditor.mode = current.frame_mode || "none";
+    hofEditor.hue = Number(current.hue ?? 310);
+    hofEditor.intensity = Number(current.intensity ?? 100);
+    hofEditor.colour = savedColour;
+    hofEditor.photo = current.image_url || null;
+    const frames = ["Original","Gold","Emerald","Ocean","Sunset","Pink"];
+    return `<div class="hof-studio">
+      <div class="hof-heading">
+        <div><span class="hof-eyebrow">CREATIVE STUDIO</span><h2>Hall of Fame</h2><p>Drop in a winner photo, style the frame, then copy or save.</p></div>
+      </div>
+      <div class="hof-studio-grid">
+        <section class="hof-canvas-panel">
+          <div class="hof-canvas-wrap">
+            <canvas id="hofCanvas" width="952" height="1188" aria-label="Hall of Fame frame preview"></canvas>
+            <div class="hof-help">Drag to move · scroll to zoom</div>
+          </div>
+          <div class="hof-canvas-actions">
+            <button class="secondary-button" onclick="openHofUpload()">↥ Add winner photo</button>
+            <button class="secondary-button" onclick="copyHallOfFame()">▣ Copy</button>
+            <button class="primary-button" onclick="downloadHallOfFame()">⇩ Download</button>
+          </div>
+        </section>
+        <aside class="hof-controls">
+          <div class="hof-control-panel">
+            <div class="hof-panel-title"><span>FRAME LIBRARY</span><small>${frames.length} designs</small></div>
+            <div class="hof-frame-grid">
+              ${frames.map(f=>`<button type="button" class="hof-frame-chip ${hofEditor.frame===f?"selected":""}" data-hof-frame="${escapeAttribute(f)}" onclick="selectHofFrame('${escapeAttribute(f)}')"><span class="hof-thumb hof-thumb-${f.toLowerCase()}"></span><b>${escapeHtml(f)}</b></button>`).join("")}
+            </div>
+          </div>
+          <div class="hof-control-panel">
+            <div class="hof-panel-title"><span>FRAME COLOUR</span><small id="hofFilterStatus">${hofEditor.mode==="hue"?"Colour Wheel":hofEditor.mode==="custom"?"Custom":"Original"}</small></div>
+            <div class="hof-filter-grid">
+              <button type="button" class="${hofEditor.mode==="none"?"active":""}" data-hof-filter="none" onclick="setHofMode('none','Original')">◦ Original</button>
+              <button type="button" class="${hofEditor.mode==="hue"?"active":""}" data-hof-filter="hue" onclick="setHofMode('hue','Colour Wheel')">◉ Colour Wheel</button>
+              <button type="button" class="${hofEditor.mode==="fire"?"active":""}" data-hof-filter="fire" onclick="setHofMode('fire','Fire')">♨ Fire</button>
+              <button type="button" class="${hofEditor.mode==="rainbow"?"active":""}" data-hof-filter="rainbow" onclick="setHofMode('rainbow','Rainbow')">✦ Rainbow</button>
+              <button type="button" class="${hofEditor.mode==="gray"?"active":""}" data-hof-filter="gray" onclick="setHofMode('gray','Gray Scale')">◐ Gray Scale</button>
+              <button type="button" class="${hofEditor.mode==="custom"?"active":""}" data-hof-filter="custom" onclick="setHofMode('custom','Custom')">● Custom</button>
+            </div>
+            <div id="hofColourControls" class="hof-colour-controls" style="display:${["hue","custom"].includes(hofEditor.mode)?"block":"none"}">
+              <div class="hof-colour-row"><canvas id="hofHueWheel" width="120" height="120" aria-label="Colour wheel"></canvas><div class="hof-colour-stack"><div class="hof-colour-row"><button type="button" id="hofSwatch" class="hof-swatch" style="background:${escapeAttribute(hofEditor.colour)}" aria-label="Choose colour"></button><input id="hofHex" value="${escapeAttribute(hofEditor.colour.toUpperCase())}" maxlength="7"><span id="hofRgb"></span></div>
+              <label class="hof-range-row"><input id="hofHue" type="range" min="0" max="359" value="${hofEditor.hue}"><small id="hofHueValue">${hofEditor.hue}°</small></label>
+              <label class="hof-range-row"><span>Intensity</span><input id="hofIntensity" type="range" min="0" max="100" value="${hofEditor.intensity}"><small id="hofIntensityValue">${hofEditor.intensity}%</small></label></div></div>
+              <button type="button" class="secondary-button" onclick="resetHofColour()">Reset colour</button>
+            </div>
+          </div>
+          <div class="hof-control-panel hof-winner-panel">
+            <label>Winner name<input id="hofWinnerName" value="${escapeAttribute(current.winner_name||"")}" placeholder="Winner name"></label>
+            <small class="hof-saved-note">${current.created_at ? `Last saved ${formatOpsDateTime(current.created_at)}` : "No winner saved yet."}</small>
+            <button type="button" class="primary-button" onclick="saveHallOfFame()">Save Winner</button>
+          </div>
+        </aside>
+      </div>
+    </div>`;
 }
 
 function renderDailyGoals(){
@@ -3281,26 +3344,123 @@ async function openAnnouncementModal(){
 }
 
 async function deleteAnnouncement(id){ if(!canManage()||!confirm("Delete this announcement?"))return;const {error}=await supabaseClient.from("ix_announcements").delete().eq("id",id);if(error)return alert(error.message);await loadInteractionData();render(); }
-function selectHofFrame(name){
-    document.querySelectorAll('.ix-frame-chip').forEach(b=>b.classList.toggle('active',b.textContent===name));
-    const preview=document.querySelector('.ix-frame-preview');
-    if(preview){ preview.className='ix-frame-preview '+String(name).toLowerCase().replace(/\s+/g,'-'); }
+function hofHexToRgb(hex){
+    const v=String(hex||"#22D3EE").replace("#",""); const n=parseInt(v,16);
+    return [n>>16,(n>>8)&255,n&255];
 }
-async function saveHallOfFame(){ if(!canManage())return;const winner_name=document.getElementById('hofWinnerName')?.value.trim();const image_url=document.getElementById('hofImageUrl')?.value.trim();const frame_colour=document.getElementById('hofColour')?.value||'#ff2d78';const frame=document.querySelector('.ix-frame-chip.active')?.textContent||'Original';const {error}=await supabaseClient.from('ix_hall_of_fame').insert({winner_name,image_url,frame,frame_colour,created_by:currentUser.id});if(error)return alert(error.message);await loadInteractionData();render();}
+function hofRgbToCss(rgb){ return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`; }
+function hofHueToHex(h){
+    const s=1,l=.55,c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;
+    let r=0,g=0,b=0;
+    if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+    return "#"+[r,g,b].map(v=>Math.round((v+m)*255).toString(16).padStart(2,"0")).join("").toUpperCase();
+}
+function hueFromHex(hex){
+    const [r,g,b]=hofHexToRgb(hex).map(v=>v/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
+    if(!d)return 0; let h=max===r?((g-b)/d)%6:max===g?(b-r)/d+2:(r-g)/d+4; h=Math.round(h*60); return h<0?h+360:h;
+}
+function hofFilterForMode(mode){
+    if(mode==="gray") return "grayscale(1)";
+    if(mode==="fire") return "sepia(.85) saturate(2.8) hue-rotate(-20deg) brightness(1.05)";
+    if(mode==="rainbow") return "hue-rotate(35deg) saturate(1.6)";
+    if(mode==="hue") return `hue-rotate(${hofEditor.hue-310}deg) saturate(${Math.max(.25,hofEditor.intensity/60)})`;
+    if(mode==="custom") return `hue-rotate(${hueFromHex(hofEditor.colour)-310}deg) saturate(${Math.max(.25,hofEditor.intensity/65)})`;
+    if(mode==="gold") return "sepia(.7) saturate(2.1) hue-rotate(-8deg)";
+    if(mode==="emerald") return "hue-rotate(80deg) saturate(1.35)";
+    if(mode==="ocean") return "hue-rotate(145deg) saturate(1.25)";
+    if(mode==="sunset") return "sepia(.35) saturate(2.1) hue-rotate(-35deg)";
+    return "none";
+}
+function selectHofFrame(name){
+    hofEditor.frame=name;
+    document.querySelectorAll("[data-hof-frame]").forEach(b=>b.classList.toggle("selected",b.dataset.hofFrame===name));
+    renderHofCanvas();
+}
+function setHofMode(mode,label){
+    hofEditor.mode=mode;
+    document.querySelectorAll("[data-hof-filter]").forEach(b=>b.classList.toggle("active",b.dataset.hofFilter===mode));
+    const status=document.getElementById("hofFilterStatus"); if(status)status.textContent=label;
+    const panel=document.getElementById("hofColourControls"); if(panel)panel.style.display=["hue","custom"].includes(mode)?"block":"none";
+    renderHofCanvas();
+}
+function setHofColour(hex){
+    hex=String(hex||"").trim(); if(!hex.startsWith("#"))hex="#"+hex;
+    if(!/^#[0-9a-fA-F]{6}$/.test(hex))return;
+    hofEditor.colour=hex.toUpperCase();
+    const hexEl=document.getElementById("hofHex");if(hexEl)hexEl.value=hofEditor.colour;
+    const swatch=document.getElementById("hofSwatch");if(swatch)swatch.style.background=hofEditor.colour;
+    const rgb=document.getElementById("hofRgb");if(rgb)rgb.textContent=hofRgbToCss(hofHexToRgb(hofEditor.colour));
+    renderHofCanvas();
+}
+function resetHofColour(){
+    hofEditor.colour="#22D3EE"; hofEditor.hue=180; hofEditor.intensity=100;
+    const h=document.getElementById("hofHue");if(h)h.value=180;
+    const i=document.getElementById("hofIntensity");if(i)i.value=100;
+    const hv=document.getElementById("hofHueValue");if(hv)hv.textContent="180°";
+    const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent="100%";
+    setHofMode("custom","Custom"); setHofColour(hofEditor.colour);
+}
+function renderHofCanvas(){
+    const canvas=document.getElementById("hofCanvas");if(!canvas||!hofEditor.frameImage)return;
+    const ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+    ctx.clearRect(0,0,w,h);ctx.fillStyle="#090b11";ctx.fillRect(0,0,w,h);
+    const hole={x:136,y:432,w:710,h:534};
+    if(hofEditor.photoImage){
+        const img=hofEditor.photoImage,scale=Math.max(hole.w/img.width,hole.h/img.height)*hofEditor.photoZoom;
+        const dw=img.width*scale,dh=img.height*scale,dx=hole.x+(hole.w-dw)/2+hofEditor.photoX,dy=hole.y+(hole.h-dh)/2+hofEditor.photoY;
+        ctx.save();ctx.beginPath();ctx.rect(hole.x,hole.y,hole.w,hole.h);ctx.clip();ctx.drawImage(img,dx,dy,dw,dh);ctx.restore();
+    }
+    ctx.save();ctx.filter=hofFilterForMode(hofEditor.mode==="none"?hofEditor.frame.toLowerCase():hofEditor.mode);ctx.drawImage(hofEditor.frameImage,0,0,w,h);ctx.restore();
+    if(hofEditor.mode==="custom"||hofEditor.mode==="hue"){
+        const [r,g,b]=hofHexToRgb(hofEditor.colour);ctx.save();ctx.globalAlpha=Math.min(.72,Math.max(.08,hofEditor.intensity/160));ctx.globalCompositeOperation="color";ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(0,0,w,h);ctx.restore();
+    }
+}
+function initHallOfFameEditor(){
+    const canvas=document.getElementById("hofCanvas");if(!canvas)return;
+    const frame=new Image();frame.onload=()=>{hofEditor.frameImage=frame;hofEditor.ready=true;renderHofCanvas();};frame.src="./kng-hof-frame.png";
+    const current=ixData.hof[0];
+    if(current?.image_url){const img=new Image();img.crossOrigin="anonymous";img.onload=()=>{hofEditor.photoImage=img;renderHofCanvas();};img.src=current.image_url;}
+    const hexEl=document.getElementById("hofHex"),hueEl=document.getElementById("hofHue"),intEl=document.getElementById("hofIntensity");
+    const rgb=document.getElementById("hofRgb");if(rgb)rgb.textContent=hofRgbToCss(hofHexToRgb(hofEditor.colour));
+    const wheel=document.getElementById("hofHueWheel");
+    if(wheel){
+        const c=wheel.getContext("2d"),W=wheel.width,H=wheel.height,cx=W/2,cy=H/2,r=Math.min(W,H)/2-2;
+        for(let y=0;y<H;y++)for(let x=0;x<W;x++){const dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy),idx=(y*W+x)*4;if(d>r||d<r*.32){c.clearRect(x,y,1,1);continue;}let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;const col=hofHexToRgb(hofHueToHex(Math.round(ang)));c.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;c.fillRect(x,y,1,1);}
+        const pick=(ev)=>{const rect=wheel.getBoundingClientRect(),mx=(ev.clientX-rect.left)*W/rect.width,my=(ev.clientY-rect.top)*H/rect.height,dx=mx-cx,dy=my-cy,d=Math.hypot(dx,dy);if(d>r||d<r*.32)return;let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;hofEditor.hue=Math.round(ang);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;const h=document.getElementById("hofHue");if(h)h.value=hofEditor.hue;setHofMode("hue","Colour Wheel");setHofColour(hofHueToHex(hofEditor.hue));};
+        wheel.addEventListener("click",pick);wheel.addEventListener("mousemove",ev=>{if(ev.buttons===1)pick(ev);});
+    }
+    hexEl?.addEventListener("change",()=>setHofColour(hexEl.value));
+    hueEl?.addEventListener("input",()=>{hofEditor.hue=Number(hueEl.value);hofEditor.colour=hofHueToHex(hofEditor.hue);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;setHofMode("hue","Colour Wheel");setHofColour(hofEditor.colour);});
+    intEl?.addEventListener("input",()=>{hofEditor.intensity=Number(intEl.value);const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent=`${hofEditor.intensity}%`;renderHofCanvas();});
+    document.getElementById("hofSwatch")?.addEventListener("click",()=>{const temp=document.createElement("input");temp.type="color";temp.value=hofEditor.colour;temp.oninput=()=>{setHofColour(temp.value);setHofMode("custom","Custom")};temp.click();});
+    canvas.addEventListener("wheel",e=>{e.preventDefault();hofEditor.photoZoom=Math.max(.25,Math.min(4,hofEditor.photoZoom*(e.deltaY<0?1.08:.92)));renderHofCanvas();},{passive:false});
+    canvas.addEventListener("pointerdown",e=>{if(!hofEditor.photoImage)return;hofEditor.dragging=true;hofEditor.dragStartX=e.clientX;hofEditor.dragStartY=e.clientY;hofEditor.photoStartX=hofEditor.photoX;hofEditor.photoStartY=hofEditor.photoY;canvas.setPointerCapture(e.pointerId);});
+    canvas.addEventListener("pointermove",e=>{if(!hofEditor.dragging)return;const sx=canvas.width/canvas.clientWidth,sy=canvas.height/canvas.clientHeight;hofEditor.photoX=hofEditor.photoStartX+(e.clientX-hofEditor.dragStartX)*sx;hofEditor.photoY=hofEditor.photoStartY+(e.clientY-hofEditor.dragStartY)*sy;renderHofCanvas();});
+    canvas.addEventListener("pointerup",()=>hofEditor.dragging=false);canvas.addEventListener("pointercancel",()=>hofEditor.dragging=false);
+}
+async function copyHallOfFame(){
+    const canvas=document.getElementById("hofCanvas");if(!canvas)return;
+    try{const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));if(navigator.clipboard?.write&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);alert("Hall of Fame image copied.");}else throw new Error("clipboard");}catch(e){alert("Copy is unavailable in this browser. Use Download instead.");}
+}
+function downloadHallOfFame(){const canvas=document.getElementById("hofCanvas");if(!canvas)return;const a=document.createElement("a");a.href=canvas.toDataURL("image/png");a.download=`KNG-Hall-of-Fame-${formatDate(new Date())}.png`;a.click();}
 function openHofUpload(){
-    if(!canManage()) return;
-    const input=document.createElement('input'); input.type='file'; input.accept='image/*';
-    input.onchange=async()=>{
-        const file=input.files?.[0]; if(!file) return;
-        const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
-        const path=`${currentUser.id}/${Date.now()}.${ext}`;
-        const {error}=await supabaseClient.storage.from('kng-hall-of-fame').upload(path,file,{upsert:false,contentType:file.type});
-        if(error) return alert(error.message);
-        const {data}=supabaseClient.storage.from('kng-hall-of-fame').getPublicUrl(path);
-        const url=document.getElementById('hofImageUrl'); if(url) url.value=data.publicUrl;
-        alert('Winner photo uploaded. Click Save Winner to use it.');
-    };
+    if(!canManage())return;
+    const input=document.createElement("input");input.type="file";input.accept="image/*";
+    input.onchange=async()=>{const file=input.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{hofEditor.photoImage=img;hofEditor.photo=reader.result;hofEditor.photoX=0;hofEditor.photoY=0;hofEditor.photoZoom=1;renderHofCanvas();};img.src=reader.result;};reader.readAsDataURL(file);};
     input.click();
+}
+async function saveHallOfFame(){
+    if(!canManage())return;
+    const winner_name=document.getElementById("hofWinnerName")?.value.trim();if(!winner_name)return alert("Enter a winner name first.");
+    let image_url=hofEditor.photo||ixData.hof[0]?.image_url||null;
+    if(hofEditor.photo&&hofEditor.photo.startsWith("data:")){
+        const blob=await (await fetch(hofEditor.photo)).blob(),ext=(blob.type.split("/")[1]||"png").replace("jpeg","jpg"),path=`${currentUser.id}/${Date.now()}.${ext}`;
+        const {error}=await supabaseClient.storage.from("kng-hall-of-fame").upload(path,blob,{upsert:false,contentType:blob.type});
+        if(error)return alert(error.message);image_url=supabaseClient.storage.from("kng-hall-of-fame").getPublicUrl(path).data.publicUrl;
+    }
+    const payload={winner_name,image_url,frame:hofEditor.frame,frame_colour:hofEditor.colour,frame_mode:hofEditor.mode,hue:hofEditor.hue,intensity:hofEditor.intensity,created_by:currentUser.id};
+    const {error}=await supabaseClient.from("ix_hall_of_fame").insert(payload);if(error)return alert(error.message);
+    await loadInteractionData();render();
 }
 async function setDailyGoal(){ if(!canManage())return;const target=prompt('Daily point target','8');const n=Number(target);if(!Number.isFinite(n)||n<1)return;const today=formatDate(new Date());const {error}=await supabaseClient.from('ix_daily_goals').upsert({user_id:currentUser.id,goal_date:today,target_points:n,points_earned:0},{onConflict:'user_id,goal_date'});if(error)return alert(error.message);await loadInteractionData();render();}
 
