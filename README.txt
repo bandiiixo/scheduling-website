@@ -36,3 +36,12 @@ CLAIM / DISPLAY NAME UPDATE - 30 OCT 2026
 - Within the one-hour cutoff, the unclaim control is locked.
 - Run KNG-DISPLAY-NAME-UNCLAIM-PATCH.sql if the database already has the previous host-claim migration.
 - The complete migration in this pack also contains the same fixes.
+
+UI / ROSTER PATCH 30 OCT 2026
+- Monthly calendar now hides the high-volume entertainment event cards to stop the month view becoming an unreadable wall of boxes. Meetings remain visible.
+- Week / Day / Agenda continue to show the full entertainment schedule.
+- Command Dashboard now shows the next 8 upcoming events from the current time, rolling into later dates instead of showing already-passed events.
+- Replaced the text crown in the header with the supplied KNG crown asset: kngcroiwn.png.
+- Staff Roster keeps Actions / Interactions allocation and explicit REMOVE ROLE controls so staff can be removed and reallocated.
+- Discord export remains copy/paste-ready and uses <@DISCORDID> mentions.
+- Existing Host an Event, randomiser, planned-slot protection, claim/unclaim, display names, prizes/commands, security and all other integrated functionality are preserved.

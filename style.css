@@ -2099,3 +2099,61 @@ body {
 .host-unclaim-btn{border-color:rgba(255,255,255,.14)!important;color:#d7deea!important;background:rgba(255,255,255,.045)!important}
 .host-unclaim-btn:hover{border-color:rgba(255,45,91,.55)!important;color:#fff!important;background:rgba(255,45,91,.12)!important}
 .host-unclaim-locked{font-size:10px;color:#69758b;white-space:nowrap;padding:7px 8px;border:1px solid rgba(255,255,255,.07);border-radius:8px}
+
+
+/* =========================================================
+   KNG PATCH: clean month view, crown asset, rolling dashboard
+   ========================================================= */
+.schedule-logo.crown-logo {
+    padding: 0;
+    background: #c90035;
+    border-color: rgba(255,255,255,.12);
+}
+.schedule-logo.crown-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* Month view is intentionally sparse. Entertainment slots live in Week/Day/Agenda. */
+.month-calendar .month-events {
+    gap: 4px;
+}
+.month-calendar .calendar-event {
+    font-size: 10px;
+}
+.month-calendar .calendar-event .event-description,
+.month-calendar .calendar-event .event-attendance,
+.month-calendar .calendar-event .event-winner,
+.month-calendar .calendar-event .event-status {
+    display: none;
+}
+
+.ix-panel-note {
+    color: #7f879b;
+    font-size: 10px;
+    letter-spacing: .04em;
+}
+.ix-schedule-list > div {
+    grid-template-columns: 88px minmax(0,1fr) auto;
+    align-items: center;
+}
+.ix-schedule-list > div b {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ix-schedule-list > div small {
+    white-space: nowrap;
+}
+
+/* Roster controls: make role removal obvious and keep the allocation tools compact. */
+.roster-actions .mini-btn.danger {
+    border-color: rgba(255,75,105,.42);
+    background: rgba(255,45,91,.11);
+}
+.roster-actions .mini-btn.danger:hover {
+    background: rgba(255,45,91,.22);
+}

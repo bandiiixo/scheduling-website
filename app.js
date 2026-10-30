@@ -347,7 +347,7 @@ function render() {
             <header class="schedule-header">
 
                 <div class="schedule-brand">
-                    <div class="schedule-logo crown-logo">♛</div>
+                    <div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div>
 
                     <div>
                         <h1>KNG Entertainment</h1>
@@ -590,8 +590,11 @@ function renderMonth(container) {
 
         const dateString = formatDate(date);
 
+        // Keep Month view clean. The high-volume entertainment schedule is
+        // intentionally hidden here; Week/Day/Agenda remain the detailed views.
+        // Staff/community meetings still appear so important planning dates are visible.
         const dayEvents = events.filter(event =>
-            event.event_date === dateString
+            event.event_date === dateString && Boolean(event.is_meeting)
         );
 
         const todayClass =
@@ -2491,7 +2494,7 @@ function operationsNavHtml() {
 function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
     return `<header class="schedule-header ops-header">
         <div class="schedule-brand">
-            <div class="schedule-logo crown-logo">♛</div>
+            <div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div>
             <div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div>
         </div>
         <div class="schedule-header-actions">
@@ -3119,7 +3122,7 @@ function applyEventPreset(preset) {
 function renderAccessRestriction() {
     const timeout = currentTimeout;
     const blocked = accessBlock;
-    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo crown-logo">♛</div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
+    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
 }
 
 function formatOpsDateTime(value) {
@@ -3159,7 +3162,7 @@ async function loadInteractionData() {
 
 function interactionHeader(title, subtitle) {
     return `<header class="schedule-header ops-header interaction-header">
-        <div class="schedule-brand"><div class="schedule-logo crown-logo">♛</div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
+        <div class="schedule-brand"><div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
         <div class="schedule-header-actions">
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
@@ -3203,19 +3206,21 @@ function renderIxViewHtml(){
 }
 
 function renderInteractionDashboard(){
-    const today=formatDate(new Date());
-    const todayEvents=allEvents.filter(e=>e.event_date===today && !e.is_meeting);
+    const upcomingEvents=getUpcomingDashboardEvents(8);
     const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e));
     const popular=[...completed].filter(e=>Number.isFinite(Number(e.attendance_count))).sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0)).slice(0,5);
+    const scheduleHtml=upcomingEvents.length
+        ? `<div class="ix-schedule-list">${upcomingEvents.map(e=>`<div><span>${escapeHtml(dashboardEventDateLabel(e))}</span><b>${escapeHtml(e.title)}</b><small>${formatTime(e.start_time)} · ${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`
+        : `<div class="ix-empty">No upcoming events are scheduled. The calendar is, for once, allowed to breathe.</div>`;
     return `<div class="ix-command-grid">
       <div class="ix-stat-row">
-        <div class="ix-stat"><span>Events Today</span><strong>${todayEvents.length}</strong><small>scheduled entertainment events</small></div>
+        <div class="ix-stat"><span>Events Today</span><strong>${(allEvents||[]).filter(e=>e.event_date===formatDate(new Date()) && !e.is_meeting).length}</strong><small>scheduled entertainment events</small></div>
         <div class="ix-stat"><span>Completed Events</span><strong>${completed.length}</strong><small>manually confirmed</small></div>
         <div class="ix-stat"><span>Event Ideas</span><strong>${(ixData.suggestions||[]).length}</strong><small>community suggestions</small></div>
         <div class="ix-stat"><span>Top Attendance</span><strong>${popular[0]?.attendance_count || 0}</strong><small>${popular[0] ? escapeHtml(popular[0].title) : 'No completed events yet'}</small></div>
       </div>
       <div class="ix-two-col">
-        ${ixPanel("Today's Schedule", todayEvents.length?`<div class="ix-schedule-list">${todayEvents.slice(0,10).map(e=>`<div><span>${formatTime(e.start_time)}</span><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`:`<div class="ix-empty">Nothing scheduled today.</div>`)}
+        ${ixPanel("Next Events",scheduleHtml,`<span class="ix-panel-note">Rolling from the current time</span>`)}
         ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('daily-goals')">Daily Goals</button>`:''}</div>`)}
       </div>
     </div>`;
@@ -3430,10 +3435,10 @@ function renderStaffRoster(){
         return groups.map(level=>{
             const members=rows.filter(r=>r.hierarchy_level===level);
             if(!members.length) return '';
-            return `<div class="roster-group"><div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div><div class="roster-table"><div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ALOPA</span><span>ACTIONS</span></div>${members.map(r=>`<div class="roster-row"><span class="roster-name"><b>${escapeHtml(r.staff?.name||'Unknown')}</b></span><span>${escapeHtml(r.kng_id||'N/A')}</span><span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span><span>${Number(r.strikes||0)}/3</span><span>${r.mentor?'Yes':'N/A'}</span><span>${r.on_alopa?'Yes':'No'}</span><span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">DELETE</button></span></div>`).join('')}</div></div>`;
+            return `<div class="roster-group"><div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div><div class="roster-table"><div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ALOPA</span><span>ACTIONS</span></div>${members.map(r=>`<div class="roster-row"><span class="roster-name"><b>${escapeHtml(r.staff?.name||'Unknown')}</b></span><span>${escapeHtml(r.kng_id||'N/A')}</span><span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span><span>${Number(r.strikes||0)}/3</span><span>${r.mentor?'Yes':'N/A'}</span><span>${r.on_alopa?'Yes':'No'}</span><span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">REMOVE ROLE</button></span></div>`).join('')}</div></div>`;
         }).join('') || `<div class="ix-empty">No ${team} staff allocated yet.</div>`;
     };
-    return `<div class="roster-page"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Actions & Interactions Role Allocation</h3><small>Each staff member can be allocated to one side only.</small></div><button class="primary-button" onclick="openRosterExportModal()">Export to Discord</button></div><div class="allocation-grid">${unallocated.map(s=>`<div class="allocation-card"><div><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||'No Discord ID')}</small></div><div><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','actions')">ACTIONS</button><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','interactions')">INTERACTIONS</button></div></div>`).join('') || `<div class="ix-empty">Everyone is already allocated to a side.</div>`}</div></div><div class="roster-hierarchy"><section class="roster-team-panel"><div class="roster-team-title">ACTIONS</div>${renderTeam('actions')}</section><section class="roster-team-panel"><div class="roster-team-title">INTERACTIONS</div>${renderTeam('interactions')}</section></div></div>`;
+    return `<div class="roster-page"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Actions & Interactions Role Allocation</h3><small>Give a staff member an Actions or Interactions role. Remove it any time, then re-allocate them to either side.</small></div><button class="primary-button" onclick="openRosterExportModal()">Export to Discord</button></div><div class="allocation-grid">${unallocated.map(s=>`<div class="allocation-card"><div><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||'No Discord ID')}</small></div><div><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','actions')">ACTIONS</button><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','interactions')">INTERACTIONS</button></div></div>`).join('') || `<div class="ix-empty">Everyone is already allocated to a side.</div>`}</div></div><div class="roster-hierarchy"><section class="roster-team-panel"><div class="roster-team-title">ACTIONS</div>${renderTeam('actions')}</section><section class="roster-team-panel"><div class="roster-team-title">INTERACTIONS</div>${renderTeam('interactions')}</section></div></div>`;
 }
 
 function bindInteractionHandlers(){ }
