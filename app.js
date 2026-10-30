@@ -21,12 +21,12 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
-let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
+let ixView = localStorage.getItem("kng.ixView") || "schedule";
 let ixData = { hof: [], goals: [], suggestions: [] };
 let rosterData = [];
 let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
 if (opsView === "logs" || opsView === "announcements") opsView = "schedule";
-if (ixView === "announcements" || ixView === "logs") ixView = "command-dashboard";
+if (ixView === "announcements" || ixView === "logs") ixView = "schedule";
 let ixLoadErrors = {};
 
 
@@ -3039,10 +3039,16 @@ function renderInteractionView() {
     const publicViews = ["event-suggestions"];
     const staffOnlyViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame"];
     if (staffOnlyViews.includes(ixView) && permissionRank() < 1) {
+        // Public visitors must never get an empty screen just because a
+        // previous staff view was saved in localStorage. Send them to the
+        // public-facing view instead.
         ixView = "event-suggestions";
         try { localStorage.setItem("kng.ixView", "event-suggestions"); } catch (_) {}
     }
-    if (!currentUser && !publicViews.includes(ixView)) { showLoginMessage(); return; }
+    if (!currentUser && !publicViews.includes(ixView)) {
+        ixView = "event-suggestions";
+        try { localStorage.setItem("kng.ixView", "event-suggestions"); } catch (_) {}
+    }
     const titles = {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
