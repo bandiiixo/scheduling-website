@@ -21,15 +21,12 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
-let ixView = localStorage.getItem("kng.ixView") || "";
-let hostPlannerDate = localStorage.getItem("kng.hostPlannerDate") || formatDate(new Date());
+let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
 let ixData = { hof: [], goals: [], suggestions: [] };
 let rosterData = [];
 let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
 if (opsView === "logs" || opsView === "announcements") opsView = "schedule";
 if (ixView === "announcements" || ixView === "logs") ixView = "command-dashboard";
-if (ixView === "daily-goals") ixView = "personal-dashboard";
-if (["dashboard", "points", "reductions"].includes(opsView)) { opsView = "schedule"; ixView = "personal-dashboard"; }
 let ixLoadErrors = {};
 
 
@@ -43,10 +40,10 @@ async function init() {
 
         currentUser = data?.session?.user || null;
 
-        await loadAccess();
         await loadEventTypes();
         await loadStaff();
         await loadEvents();
+        await loadAccess();
         await loadAccessRequests();
         await loadOpsData();
         await loadInteractionData();
@@ -149,14 +146,8 @@ async function loadEvents() {
     applyEventVisibility();
 }
 
-function canViewStaffEvents() {
-    // Any confirmed KNG staff member can see staff-only meetings/events.
-    // Players/public visitors must never receive them in the UI.
-    return permissionRank() >= 1;
-}
-
 function applyEventVisibility() {
-    events = (allEvents || []).filter(e => canViewStaffEvents() || (e.visibility || "public") !== "staff");
+    events = (allEvents || []).filter(e => canManage() || (e.visibility || "public") !== "staff");
 }
 
 
@@ -214,29 +205,7 @@ function getDiscordIdentity() {
     const data = identity?.identity_data || {};
     const discordId = identity?.provider_id || data?.provider_id || data?.id || data?.sub || null;
     const username = data?.global_name || data?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || "Discord user";
-    const displayName = String(currentUser?.user_metadata?.kng_display_name || username).trim() || username;
-    return { discordId: discordId ? String(discordId) : null, username: String(username), displayName };
-}
-
-function getKngDisplayName() {
-    return getDiscordIdentity().displayName;
-}
-
-function openProfileModal() {
-    if (!currentUser) return openLogin();
-    const current = getKngDisplayName();
-    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>My Profile</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">Choose the name other staff will see when you claim an event. Your Discord ID stays private and is only used internally.</p><form id="kngProfileForm" class="ops-form"><label>Display Name<input name="display_name" maxlength="80" value="${escapeAttribute(current)}" placeholder="Your KNG display name" required></label><button class="primary-button" type="submit">Save Display Name</button></form></div>`);
-    document.getElementById("kngProfileForm")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const name = String(new FormData(e.target).get("display_name") || "").trim();
-        if (!name) return alert("Please enter a display name.");
-        const { data, error } = await supabaseClient.auth.updateUser({ data: { kng_display_name: name } });
-        if (error) return alert(error.message);
-        currentUser = data?.user || currentUser;
-        closeModal();
-        await loadEvents();
-        render();
-    });
+    return { discordId: discordId ? String(discordId) : null, username: String(username) };
 }
 
 async function requestStaffAccess() {
@@ -259,31 +228,11 @@ async function requestStaffAccess() {
 
 async function approveAccessRequest(requestId, accessLevel) {
     if (!canApproveAccess()) return;
-    const request = accessRequests.find(r => String(r.id) === String(requestId));
     const { error } = await supabaseClient.rpc("approve_staff_access_request", { p_request_id: requestId, p_access_level: accessLevel });
     if (error) { alert(error.message); return; }
     await loadAccessRequests();
     await loadOpsData();
-    await loadStaff();
-    await loadRosterData();
     render();
-    if (request?.discord_id && canManage()) {
-        const staffRow = staff.find(s => String(s.discord_id || '') === String(request.discord_id));
-        if (staffRow) {
-            const existing = rosterData.find(r => String(r.staff_id) === String(staffRow.id) && r.active !== false);
-            if (!existing) openPostApprovalAllocationModal(staffRow);
-        }
-    }
-}
-
-function openPostApprovalAllocationModal(staffRow) {
-    if (!canManage() || !staffRow) return;
-    showModal(`<div class="modal small-modal roster-allocation-modal"><div class="modal-header"><div><span class="modal-eyebrow">Staff Approved</span><h2>Allocate ${escapeHtml(staffRow.name || 'Staff Member')}</h2><small>Choose where they belong in KNG Entertainment.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><div class="allocation-choice-grid"><button class="allocation-choice" onclick="finishPostApprovalAllocation('${escapeAttribute(staffRow.id)}','interactions')"><strong>INTERACTIONS</strong><small>Allocate to the Interactions roster</small></button><button class="allocation-choice" onclick="finishPostApprovalAllocation('${escapeAttribute(staffRow.id)}','actions')"><strong>ACTIONS</strong><small>Allocate to the Actions roster</small></button></div><div class="modal-footer"><button class="header-button" onclick="closeModal()">Do this later</button></div></div>`);
-}
-
-async function finishPostApprovalAllocation(staffId, team) {
-    closeModal();
-    await allocateEntertainmentTeam(staffId, team);
 }
 
 async function rejectAccessRequest(requestId) {
@@ -351,7 +300,7 @@ function availableGrantLevels() {
    ========================================================= */
 
 function render() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","personal-dashboard","staff-roster","event-suggestions","public-f3"];
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
     if (accessBlock || currentTimeout) {
         renderAccessRestriction();
         return;
@@ -368,7 +317,7 @@ function render() {
             <header class="schedule-header">
 
                 <div class="schedule-brand">
-                    <div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div>
+                    <div class="schedule-logo crown-logo">♛</div>
 
                     <div>
                         <h1>KNG Entertainment</h1>
@@ -405,8 +354,6 @@ function render() {
                 ${currentUser ? `${nextRequestedAccessLevel() ? `<button class="header-button" onclick="requestStaffAccess()">Request ${String(nextRequestedAccessLevel()).toUpperCase()} Access</button>` : ""}<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}
               `
     }
-
-    <button class="header-button public-f3-button" onclick="switchOpsView('public-f3')">🎮 Public F3</button>
 
     <button class="header-button"
         onclick="goToday()">
@@ -613,17 +560,9 @@ function renderMonth(container) {
 
         const dateString = formatDate(date);
 
-        // Keep Month view clean. High-volume F3/Host-an-Event slots are not
-        // rendered as individual cards here. Week/Day/Agenda and Host an Event
-        // remain the detailed views. Meetings stay visible, with a compact count
-        // so the month still tells you that the day is busy without becoming a
-        // wall of 30-minute boxes.
         const dayEvents = events.filter(event =>
-            event.event_date === dateString && Boolean(event.is_meeting)
+            event.event_date === dateString
         );
-        const dayEntertainmentCount = events.filter(event =>
-            event.event_date === dateString && !event.is_meeting && event.status !== 'cancelled'
-        ).length;
 
         const todayClass =
             isToday(date) ? " today" : "";
@@ -647,8 +586,6 @@ function renderMonth(container) {
                     ${dayEvents.map(event =>
                         renderCalendarEvent(event)
                     ).join("")}
-
-                    ${dayEntertainmentCount ? `<button type="button" class="month-event-count" onclick="event.stopPropagation(); currentDate = new Date('${dateString}T12:00:00'); currentView = 'day'; renderCalendar();">${dayEntertainmentCount} F3 event${dayEntertainmentCount === 1 ? '' : 's'}</button>` : ''}
 
                 </div>
 
@@ -1281,9 +1218,7 @@ function openCreateMeetingModal() {
 async function createMeeting(e) {
     e.preventDefault(); if (!isAdmin()) return;
     const title=document.getElementById("meetingTitle").value.trim(); const date=document.getElementById("meetingDate").value; const start=document.getElementById("meetingStart").value; const end=document.getElementById("meetingEnd").value; const repeat=document.getElementById("meetingRepeat").value; const until=document.getElementById("meetingRepeatUntil").value; const description=document.getElementById("meetingDescription").value.trim();
-    const err=document.getElementById("meetingFormError");
-    if(end<=start){err.textContent="End time must be later than start time."; return;}
-    if(repeat!=="none" && until < date){err.textContent="Repeat until must be on or after the first meeting date."; return;}
+    const err=document.getElementById("meetingFormError"); if(end<=start){err.textContent="End time must be later than start time."; return;}
     const meetingType = eventTypes.find(t => String(t.name||"").toLowerCase() === "staff meeting") || eventTypes.find(t => String(t.name||"").toLowerCase() === "community meeting");
     if (!meetingType) { err.textContent="Staff Meeting event type is missing."; return; }
     const dates=buildRecurringDates(date, repeat, until); const recurrenceGroupId=crypto.randomUUID();
@@ -1347,11 +1282,6 @@ async function createEvent(event) {
         errorBox.textContent =
             "End time must be later than start time.";
 
-        return;
-    }
-
-    if (repeat !== "none" && repeatUntil < eventDate) {
-        errorBox.textContent = "Repeat until must be on or after the first event date.";
         return;
     }
 
@@ -1460,10 +1390,6 @@ function openEditEvent(eventId) {
         events.find(item => item.id === eventId);
 
     if (!event || !canManage()) return;
-    if (event.is_meeting && !isAdmin()) {
-        alert("Only Managers and Directors can edit staff meetings.");
-        return;
-    }
 
 
     showModal(`
@@ -1587,10 +1513,10 @@ function openEditEvent(eventId) {
 
                     <div class="form-field">
                         <label>Visibility</label>
-                        <select id="editEventVisibility" ${event.is_meeting ? "disabled" : ""}>
+                        <select id="editEventVisibility">
                             <option value="public" ${(event.visibility || "public") === "public" ? "selected" : ""}>Player visible</option>
                             <option value="staff" ${event.visibility === "staff" ? "selected" : ""}>Staff only</option>
-                        </select>${event.is_meeting ? '<small>Staff meetings are always staff-only.</small>' : ''}
+                        </select>
                     </div>
 
                     <div class="form-field full">
@@ -1645,11 +1571,6 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById("editEventFormError");
 
     errorBox.textContent = "";
-    const event = events.find(item => item.id === eventId);
-    if (!event) {
-        errorBox.textContent = "Event could not be found.";
-        return;
-    }
 
 
     const title =
@@ -1683,13 +1604,7 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById(
             "editEventDescription"
         ).value.trim();
-    let visibility = document.getElementById("editEventVisibility")?.value || "public";
-    const editingMeeting = Boolean(event && event.is_meeting);
-    if (editingMeeting && !isAdmin()) {
-        errorBox.textContent = "Only Managers and Directors can edit staff meetings.";
-        return;
-    }
-    if (editingMeeting) visibility = "staff";
+    const visibility = document.getElementById("editEventVisibility")?.value || "public";
 
 
     if (endTime <= startTime) {
@@ -1750,10 +1665,6 @@ async function deleteEvent(eventId) {
         events.find(item => item.id === eventId);
 
     if (!event) return;
-    if (event.is_meeting && !isAdmin()) {
-        alert("Only Managers and Directors can delete staff meetings.");
-        return;
-    }
 
 
     const confirmed =
@@ -2465,12 +2376,6 @@ window.handleModalBackdrop =
 
 window.openLogin =
     openLogin;
-window.openProfileModal =
-    openProfileModal;
-window.claimHostSlot =
-    claimHostSlot;
-window.unclaimHostSlot =
-    unclaimHostSlot;
 
 
 
@@ -2485,18 +2390,24 @@ window.unclaimHostSlot =
 function operationsNavHtml() {
     const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
+        // Public / community
         ["schedule", "▦", "Schedule", 0],
-        ["event-suggestions", "✦", "Event Suggestions", 0],
-        ["hungry", "🎲", "Host an Event", 1],
-        ["prizes", "◇", "Prizes & Commands", 2],
-        ["hall-of-fame", "▣", "Hall of Fame", 1],
-        ["personal-dashboard", "◎", "Personal Dashboard", 1],
-        ["staff-roster", "♙", "Staff Roster", 2],
         ["command-dashboard", "⌂", "Command Dashboard", 1],
+        ["event-suggestions", "✦", "Event Suggestions", 0],
+        ["interactions-leaderboard", "♛", "Leaderboard", 1],
+        ["hall-of-fame", "▣", "Hall of Fame", 1],
+        // Staff tools
+        ["daily-goals", "◎", "Daily Goals", 1],
+        ["staff-roster", "♙", "Staff Roster", 2],
+        ["hungry", "🍽", "Hungry Pool", 1],
+        // Operations
+        ["dashboard", "◈", "Operations Dashboard", 2],
         ["actions", "⚡", "Actions & Interactions", 2],
-        ["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2],
+        ["points", "✣", "Points", 2],
+        ["prizes", "◇", "Prizes & Commands", 2],
         ["security", "◉", "Security", 3]
     ];
+    if (canApproveAccess()) items.push(["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2]);
     const rank = permissionRank();
     const visible = items.filter(([, , , requiredRank]) => rank >= requiredRank);
     return `<aside class="integrated-sidebar" aria-label="KNG navigation">
@@ -2511,7 +2422,7 @@ function operationsNavHtml() {
         <div class="sidebar-access-card">
             <span class="sidebar-access-label">CURRENT ACCESS</span>
             <strong>${escapeHtml(String(getPermissionLevel()).toUpperCase())}</strong>
-            ${currentUser ? `<small class="sidebar-display-name">${escapeHtml(getKngDisplayName())}</small><small>${escapeHtml(currentUser.email || "Discord account")}</small><button class="secondary-button small profile-button" onclick="openProfileModal()">Edit Display Name</button>` : `<small>Public visitor</small>`}
+            ${currentUser ? `<small>${escapeHtml(currentUser.email || "Discord account")}</small>` : `<small>Public visitor</small>`}
         </div>
     </aside>`;
 }
@@ -2519,7 +2430,7 @@ function operationsNavHtml() {
 function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
     return `<header class="schedule-header ops-header">
         <div class="schedule-brand">
-            <div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div>
+            <div class="schedule-logo crown-logo">♛</div>
             <div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div>
         </div>
         <div class="schedule-header-actions">
@@ -2531,8 +2442,8 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
 }
 
 async function switchOpsView(view) {
-    const publicViews = ["event-suggestions", "public-f3"];
-    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "personal-dashboard", "staff-roster", "event-suggestions", "public-f3"];
+    const publicViews = ["event-suggestions"];
+    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions"];
     if (view !== "schedule" && !currentUser && !publicViews.includes(view)) {
         showLoginMessage();
         return;
@@ -2572,9 +2483,11 @@ async function loadOpsTable(name, queryFn) {
 
 async function loadOpsData() {
     if (!currentUser) return;
-    const [tracker, points, audit, security, prizes, helpers, prizeWins, timeouts, blocks] = await Promise.all([
+    const [tracker, points, hungry, reductions, audit, security, prizes, helpers, prizeWins, timeouts, blocks] = await Promise.all([
         loadOpsTable("tracker", () => supabaseClient.from("ops_tracker").select("*, staff(id,name,discord_id)").order("created_at", { ascending: false }).limit(250)),
         loadOpsTable("points", () => supabaseClient.from("ops_points").select("*, staff(id,name,discord_id)").order("created_at", { ascending: false }).limit(1000)),
+        loadOpsTable("hungry", () => supabaseClient.from("ops_hungry").select("*").order("event_date").order("event_time")),
+        loadOpsTable("reductions", () => supabaseClient.from("ops_reductions").select("*, staff(id,name,discord_id)").order("created_at", { ascending: false }).limit(250)),
         loadOpsTable("audit", () => supabaseClient.from("ops_audit").select("*").order("created_at", { ascending: false }).limit(250)),
         loadOpsTable("security", () => supabaseClient.from("ops_security").select("*").order("created_at", { ascending: false }).limit(250)),
         loadOpsTable("prizes", () => supabaseClient.from("ops_prizes").select("*").eq("active", true).order("amount")),
@@ -2583,11 +2496,6 @@ async function loadOpsData() {
         loadOpsTable("timeouts", () => supabaseClient.from("ops_timeouts").select("*").order("expires_at", { ascending: false }).limit(250)),
         loadOpsTable("blocks", () => supabaseClient.from("ops_access_blocks").select("*").eq("active", true).order("created_at", { ascending: false }).limit(250))
     ]);
-    // Hungry Pool and Reductions were intentionally retired from the KNG UI.
-    // Keep empty compatibility arrays so older helper code cannot break if a
-    // browser still has an old view value cached in localStorage.
-    const hungry = [];
-    const reductions = [];
     ops = { tracker, points, hungry, reductions, audit, security, prizes, helpers, prizeWins, timeouts, blocks };
     const settingsResult = await loadOpsTable("security_settings", () => supabaseClient.from("ops_security_settings").select("*").eq("id", 1).maybeSingle());
     crashoutSettings = { max_removals: Number(settingsResult?.max_removals || 3), window_minutes: Number(settingsResult?.window_minutes || 60), timeout_minutes: Number(settingsResult?.timeout_minutes || 30) };
@@ -2600,17 +2508,11 @@ function opsCard(title, body, extra="") {
 function opsErrorNotice(name) {
     const err = opsLoadErrors[name];
     if (!err) return "";
-    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
-}
-
-function ixSchemaNotice(name) {
-    const err = opsLoadErrors[name];
-    if (!err) return "";
-    return `<div class="ops-notice warning">${escapeHtml(name)} is not set up yet. Run <code>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
+    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>kng_schedule_operations.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
 }
 
 function renderOperations() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","personal-dashboard","staff-roster","event-suggestions","public-f3"];
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
     if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView === "schedule") { render(); return; }
     if (opsView === "access" && !canApproveAccess()) { showLoginMessage(); return; }
@@ -2619,12 +2521,12 @@ function renderOperations() {
         "command-dashboard": ["Command Dashboard", "KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard": ["Leaderboard", "Staff activity, events and points"],
         "hall-of-fame": ["Hall of Fame", "Winner frames and event recognition"],
-        "personal-dashboard": ["Personal Dashboard", "Your daily goal and the useful bits of KNG operations"],
+        "daily-goals": ["Daily Goals", "Track your interaction target"],
         "staff-roster": ["Staff Roster", "Current KNG Entertainment staff"],
         actions: ["Actions & Interactions", "Tracker, hungry pool, reductions and helpers"],
         tracker: ["Tracker", "Track staff activity and operational work"],
         points: ["Points", "Staff points, adjustments and leaderboard"],
-        hungry: ["Host an Event", "Randomise, plan and manually edit the entertainment schedule"],
+        hungry: ["Hungry Pool", "Open operational slots and availability"],
         reductions: ["Reductions", "Track staff reductions and reasons"],
         security: ["Security", "Security events and audit visibility"],
         prizes: ["Prizes & Commands", "Prize wins and ready-to-copy commands"],
@@ -2651,13 +2553,13 @@ function renderOpsViewHtml() {
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
         case "hall-of-fame": return renderHallOfFame();
-        case "personal-dashboard": return renderPersonalDashboard();
+        case "daily-goals": return renderDailyGoals();
         case "staff-roster": return renderStaffRoster();
         case "event-suggestions": return renderEventSuggestions();
         case "actions": return renderOpsActionsHub();
         case "tracker": return renderOpsTracker();
         case "points": return renderOpsPoints();
-        case "hungry": return renderHostEventPlanner();
+        case "hungry": return renderOpsHungry();
         case "reductions": return renderOpsReductions();
         case "logs": return renderOpsLogs();
         case "security": return renderOpsSecurity();
@@ -2668,52 +2570,9 @@ function renderOpsViewHtml() {
     }
 }
 
-function getUpcomingDashboardEvents(limit = 8) {
-    const now = new Date();
-    const today = formatDate(now);
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowKey = formatDate(tomorrow);
-
-    const candidates = (events || [])
-        .filter(e => !e.is_meeting && e.status !== "cancelled")
-        .map(e => {
-            const dateKey = String(e.event_date || "");
-            if (!dateKey) return null;
-            const start = new Date(`${dateKey}T${String(e.start_time || "00:00").slice(0,5)}:00`);
-            const end = new Date(`${dateKey}T${String(e.end_time || e.start_time || "00:00").slice(0,5)}:00`);
-            if (Number.isNaN(start.getTime())) return null;
-            // Only show events that have not started yet. The full Schedule page
-            // remains the place to inspect an event that is currently running.
-            if (start < now) return null;
-            return { ...e, _dashboardStart: start, _dashboardEnd: end, _dateKey: dateKey };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a._dashboardStart - b._dashboardStart);
-
-    // Keep the dashboard rolling forward. The date variables above are useful
-    // for readability and future expansion, while the sorted event list also
-    // naturally carries into tomorrow and later dates if needed.
-    void today;
-    void tomorrowKey;
-    return candidates.slice(0, limit);
-}
-
-function dashboardEventDateLabel(event) {
-    const now = new Date();
-    const eventDate = String(event.event_date || "");
-    const today = formatDate(now);
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowKey = formatDate(tomorrow);
-    if (eventDate === today) return "Today";
-    if (eventDate === tomorrowKey) return "Tomorrow";
-    const date = new Date(`${eventDate}T00:00:00`);
-    return date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-}
-
 function renderOpsDashboard() {
-    const upcomingEvents = getUpcomingDashboardEvents(8);
+    const today = formatDate(new Date());
+    const todayEvents = events.filter(e => e.event_date === today && !e.is_meeting);
     const completed = (allEvents || []).filter(e => !e.is_meeting && isEventCompleted(e));
     const counts = {};
     completed.forEach(e => {
@@ -2723,43 +2582,9 @@ function renderOpsDashboard() {
     const leaderboard = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const totalPoints = ops.points.reduce((sum, p) => sum + Number(p.amount || 0), 0);
     const activeReductions = ops.reductions.filter(r => r.active !== false).length;
-
-    const totals = {};
-    ops.points.forEach(p => {
-        const id = p.staff_id;
-        if (!totals[id]) totals[id] = { name: p.staff?.name || "Unknown", total: 0 };
-        totals[id].total += Number(p.amount || 0);
-    });
-    const pointRows = Object.values(totals).sort((a,b)=>b.total-a.total);
-
-    const upcomingBody = upcomingEvents.length
-        ? `<div class="ops-list dashboard-upcoming-list">${upcomingEvents.map(e => `
-            <div class="ops-row dashboard-upcoming-row">
-                <div>
-                    <b>${escapeHtml(e.title)}</b>
-                    <small>${dashboardEventDateLabel(e)} · ${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small>
-                </div>
-                <span class="ops-pill">${escapeHtml(e.event_types?.name || "Event")}</span>
-            </div>`).join("")}</div>`
-        : `<div class="ops-empty">No upcoming events are currently scheduled.</div>`;
-
-    const pointsBody = pointRows.length
-        ? `<div class="leaderboard">${pointRows.slice(0,10).map((r,i)=>`<div class="leader-row"><span class="rank">${i+1}</span><b>${escapeHtml(r.name)}</b><strong>${r.total}</strong></div>`).join("")}</div>`
-        : `<div class="ops-empty">No points recorded yet.</div>`;
-
-    const adjustPointsBody = canManage()
-        ? `<form id="pointsForm" class="ops-form">
-            <select name="staff_id" required><option value="">Select staff</option>${staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select>
-            <input name="amount" type="number" min="-25" max="25" required placeholder="Points (-25 to 25)">
-            <input name="reason" maxlength="200" required placeholder="Reason">
-            <button class="primary-button">Apply adjustment</button>
-            <small>Maximum adjustment: 25 points.</small>
-        </form>`
-        : `<div class="ops-empty">Management access required.</div>`;
-
     return `${opsErrorNotice("tracker")}${opsErrorNotice("points")}
         <div class="ops-stats-grid">
-            <div class="ops-stat"><span>Upcoming</span><strong>${upcomingEvents.length}</strong><small>next scheduled events</small></div>
+            <div class="ops-stat"><span>Today</span><strong>${todayEvents.length}</strong><small>scheduled events</small></div>
             <div class="ops-stat"><span>Completed</span><strong>${completed.length}</strong><small>completed events</small></div>
             <div class="ops-stat"><span>Staff</span><strong>${staff.length}</strong><small>active staff</small></div>
             <div class="ops-stat"><span>Points</span><strong>${totalPoints}</strong><small>recorded adjustments</small></div>
@@ -2767,20 +2592,24 @@ function renderOpsDashboard() {
             <div class="ops-stat"><span>Reductions</span><strong>${activeReductions}</strong><small>active records</small></div>
         </div>
         <div class="ops-grid-two">
-            ${opsCard("Upcoming events", upcomingBody, `<span class="ops-subtle">Rolling from the current time</span>`)}
+            ${opsCard("Today's schedule", todayEvents.length ? `<div class="ops-list">${todayEvents.slice(0,8).map(e => `<div class="ops-row"><div><b>${escapeHtml(e.title)}</b><small>${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small></div><span class="ops-pill">${escapeHtml(e.event_types?.name || "Event")}</span></div>`).join("")}</div>` : `<div class="ops-empty">Nothing scheduled today.</div>`)}
             ${opsCard("Completed event leaderboard", leaderboard.length ? `<div class="ops-list leaderboard-list">${leaderboard.map(([name,count],i)=>`<div class="ops-row"><div><b>#${i+1} · ${escapeHtml(name)}</b><small>Completed ${count} time${count===1?"":"s"}</small></div><span class="ops-pill">${count}</span></div>`).join("")}</div>` : `<div class="ops-empty">No completed events yet. Humanity survives another day.</div>`)}
-        </div>
-        <div class="ops-grid-two dashboard-points-section">
-            ${opsCard("Points leaderboard", pointsBody, `<span class="ops-subtle">Top staff by total points</span>`)}
-            ${opsCard("Adjust points", adjustPointsBody, `<span class="ops-subtle">ADM+ only</span>`)}
         </div>`;
 }
 
 function renderOpsActionsHub() {
-    const pointsCard = canManage() ? opsCard("Adjust staff points", `<form id="actionsPointsForm" class="ops-form"><select name="staff_id" required><option value="">Select staff</option>${staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select><input name="amount" type="number" min="-25" max="25" required placeholder="Points (-25 to 25)"><input name="reason" maxlength="200" required placeholder="Reason"><button class="primary-button">Apply adjustment</button><small>ADM+ only · maximum adjustment 25 points.</small></form>`) : "";
     return `<div class="ops-grid-two">
-        ${opsCard("Actions & Interactions", `<div class="action-hub-grid"><button class="hub-action" onclick="switchOpsView('tracker')"><b>Tracker</b><small>Staff activity and operational work</small></button><button class="hub-action" onclick="switchOpsView('helpers')"><b>Helpers</b><small>Assign additional staff helpers to events</small></button><button class="hub-action" onclick="switchOpsView('staff-roster')"><b>Manage Team Rosters</b><small>Allocate, move and edit Actions / Interactions staff</small></button></div>`)}
-        ${pointsCard || opsCard("Staff tools", `<div class="ops-empty">Management tools are only available to ADM and above.</div>`)}
+        ${opsCard("Actions", `<div class="action-hub-grid">
+            <button class="hub-action" onclick="switchOpsView('tracker')"><b>Tracker</b><small>Staff activity and operational work</small></button>
+            <button class="hub-action" onclick="switchOpsView('hungry')"><b>Hungry Pool</b><small>Open operational slots</small></button>
+            <button class="hub-action" onclick="switchOpsView('reductions')"><b>Reductions</b><small>Record staff reductions</small></button>
+            <button class="hub-action" onclick="switchOpsView('helpers')"><b>Helpers</b><small>Assign event helpers</small></button>
+        </div>`)}
+        ${opsCard("Quick actions", `<div class="action-hub-grid">
+            <button class="hub-action" onclick="openCreateEventModal()"><b>Create Event</b><small>Party, Event, Battle Royale or Community Meeting</small></button>
+            <button class="hub-action" onclick="openPrizeWinModal()"><b>Prize Win</b><small>Record a winner and generate their command</small></button>
+            <button class="hub-action" onclick="switchOpsView('security')"><b>Security</b><small>Timeout or kick off multiple users</small></button>
+        </div>`)}
     </div>`;
 }
 
@@ -2803,90 +2632,20 @@ function renderOpsPoints() {
         </div>`;
 }
 
-function hostEventPool() {
-    return [
-        "Arena Annihilation","Bar Fight","BMX Sprint","Boxes","Breaks Are Gone","Buggy Blitz","Bumper Cars","Cargo FFA","Compound FFA","Cops & Robbers","Crossy Road","Dead Man's Dash","Dirty Derby","Dress to Impress","Factory of Fear","Family Fortunes","Find the Animal","Football Trivia","Fortune's Choice","Grand Prix","Guess the Song","Got-A-Reason","Go-Kart Race","Hide My Ride","Higher or Lower","Hide-or-Die Chicken Coop","Hide-or-Die Chinatown","Hide-or-Die Hospital","Hide-or-Die University","KNG Got Talent","KNG Trivia","Long Haul Championship","Monster Truck Gauntlet","Musical Cars","Musical Statues","Need for Speed","Phantoms vs Runners","Pop Quiz","Ramps","Rubber Dinghy Rapids","Sandy Seeking","Scavenger Hunt","Simon Says","Slippy Slide","Subway Surfers","Taxi Dash","Harbour Havoc","Would You Rather","Word War","Clown Survival","Deadman's Pit","Ghost Rider Rally","Haunted Hospital","Headless Horseman","Infected","Scrapyard Showdown","The Haunting Grounds","The Slasher","Chemist Clash","KNG Boxing"
-    ];
-}
-function hostManualOnlyEvents() { return ["Club 77", "Vanilla"]; }
-function hostAllEventChoices() { return [...hostEventPool(), ...hostManualOnlyEvents()]; }
-function hostTimeToMinutes(value) { const [h,m] = String(value || "00:00").split(":").map(Number); return (h * 60) + m; }
-function hostMinutesToTime(minutes) { const h = Math.floor(minutes / 60) % 24; const m = minutes % 60; return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`; }
-function hostSlotOccupied(date, start, end, ignoreId = null) {
-    const s = hostTimeToMinutes(start), e = hostTimeToMinutes(end);
-    return (allEvents || []).some(ev => { if (ignoreId && String(ev.id) === String(ignoreId)) return false; if (ev.event_date !== date || ev.status === "cancelled") return false; const es=hostTimeToMinutes(ev.start_time), ee=hostTimeToMinutes(ev.end_time); return es < e && ee > s; });
-}
-function hostTypeIdFor(title) {
-    const lower = String(title || "").toLowerCase();
-    if (lower === "club 77" || lower === "vanilla") return eventTypes.find(t => String(t.name||"").toLowerCase() === "party")?.id || eventTypes.find(t => String(t.name||"").toLowerCase() === "event")?.id;
-    return eventTypes.find(t => String(t.name||"").toLowerCase() === "event")?.id || eventTypes[0]?.id;
-}
-function renderHostEventPlanner() {
-    const date = hostPlannerDate || formatDate(new Date());
-    const todayEvents = (allEvents || []).filter(e => e.event_date === date && e.status !== "cancelled").sort((a,b)=>String(a.start_time).localeCompare(String(b.start_time)));
-    const canEdit = canManage();
+function renderOpsHungry() {
+    const openEntries = ops.hungry.filter(x => x.status !== "completed");
     return `${opsErrorNotice("hungry")}
-        <div class="host-event-toolbar"><div><span class="host-eyebrow">KNG ENTERTAINMENT</span><h2>Host an Event</h2><p>Build the schedule, protect planned slots, then change anything manually when the schedule inevitably develops opinions.</p></div>${canEdit ? `<div class="host-toolbar-buttons"><button class="primary-button" onclick="randomiseHostSchedule()">🎲 Randomise Empty Slots</button><button class="secondary-button" onclick="toggleHostPanel('plannedHostPanel')">📅 Add Planned Event</button><button class="secondary-button" onclick="toggleHostPanel('manualHostPanel')">➕ Add Event</button></div>` : ""}</div>
-        <div id="plannedHostPanel" class="host-control-panel" hidden><div class="host-control-head"><div><b>Planned / Protected Event</b><small>Daily, weekly or biweekly events lock their slots so the randomiser cannot fill them.</small></div><button class="secondary-button small" onclick="toggleHostPanel('plannedHostPanel')">Close</button></div><form id="plannedHostForm" class="host-form-grid"><input name="title" maxlength="120" placeholder="Event name" required><select name="type_id" required>${eventTypes.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("")}</select><input name="event_date" type="date" value="${date}" required><input name="start_time" type="time" value="18:00" required><input name="end_time" type="time" value="18:30" required><select name="repeat"><option value="none">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option></select><input name="repeat_until" type="date" value="${formatDate(new Date(Date.now()+90*86400000))}" required><input name="description" maxlength="500" placeholder="Optional note"><button class="primary-button" type="submit">Create &amp; Protect Slot(s)</button></form><div id="plannedHostError" class="form-error"></div></div>
-        <div id="manualHostPanel" class="host-control-panel" hidden><div class="host-control-head"><div><b>Manual Event</b><small>Club 77 and Vanilla are available here but are never chosen by the randomiser.</small></div><button class="secondary-button small" onclick="toggleHostPanel('manualHostPanel')">Close</button></div><form id="manualHostForm" class="host-form-grid"><select name="title" required>${hostAllEventChoices().map(x=>`<option value="${escapeAttribute(x)}">${escapeHtml(x)}</option>`).join("")}</select><input name="event_date" type="date" value="${date}" required><input name="start_time" type="time" value="18:00" required><input name="end_time" type="time" value="18:30" required><input name="description" maxlength="500" placeholder="Optional note"><label class="host-check"><input type="checkbox" name="locked"> Protect this slot from the randomiser</label><button class="primary-button" type="submit">Add Event</button></form><div id="manualHostError" class="form-error"></div></div>
-        <div class="host-randomiser-card"><div><b>Randomiser</b><small>Only empty slots are filled. Existing events are never overwritten by the randomiser.</small></div><div class="host-randomiser-controls"><label class="host-date-label">View / randomise date<input id="hostRandomDate" type="date" value="${date}" onchange="setHostPlannerDate(this.value)"></label><input id="hostRandomStart" type="time" value="18:00"><input id="hostRandomEnd" type="time" value="23:30"><select id="hostRandomInterval"><option value="30">30 minute slots</option><option value="60">60 minute slots</option></select></div></div>
-        <div class="host-schedule-card"><div class="host-section-head"><div><h3>Schedule</h3><small>Every slot can still be edited after randomisation.</small></div><span class="ops-pill">${todayEvents.length} scheduled</span></div><div id="hostScheduleList" class="host-slot-list">${todayEvents.length ? todayEvents.map(e => hostRenderSlot(e)).join("") : `<div class="ops-empty">No events are scheduled for today yet.</div>`}</div></div>
-        <div class="host-rules-grid"><div><b>🎲 Random</b><small>${hostEventPool().length} event choices</small></div><div><b>🎉 Manual only</b><small>Club 77 + Vanilla</small></div><div><b>🔒 Protected</b><small>Planned slots cannot be overwritten by the randomiser</small></div><div><b>✏️ Editable</b><small>You can change any slot after randomisation</small></div></div>`;
+        <div class="ops-grid-two">
+            ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form><small>Staff can claim an open slot. It is only completed when someone marks it complete.</small>`) : ""}
+            ${opsCard("Hungry Pool", openEntries.length ? `<div class="ops-list">${openEntries.map(x=>{
+                const claimed = x.status === "claimed";
+                const mine = x.claimed_by && currentUser && x.claimed_by === currentUser.id;
+                return `<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small>${x.notes ? `<small>${escapeHtml(x.notes)}</small>` : ""}${claimed ? `<small><strong>Claimed by ${escapeHtml(x.claimed_by_name || "Staff member")}</strong></small>` : `<small><span class="ops-pill">Open</span></small>`}</div><div class="ops-row-actions">${!claimed && currentUser && permissionRank() >= 1 ? `<button class="primary-button small ops-claim-hungry" data-id="${x.id}">Claim</button>` : ""}${mine ? `<button class="secondary-button small ops-unclaim-hungry" data-id="${x.id}">Unclaim</button>` : ""}${(mine || canManage()) && claimed ? `<button class="primary-button small ops-complete-hungry" data-id="${x.id}">Mark Complete</button>` : ""}${canManage() ? `<button class="danger-button small ops-delete-hungry" data-id="${x.id}">Remove</button>` : ""}</div></div>`;
+            }).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
+        </div>
+        ${opsCard("Completed hungry-pool work", ops.hungry.filter(x => x.status === "completed").length ? `<div class="ops-list">${ops.hungry.filter(x => x.status === "completed").map(x=>`<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · completed by ${escapeHtml(x.completed_by_name || "Staff")}</small></div><span class="ops-pill">Completed</span></div>`).join("")}</div>` : `<div class="ops-empty">Nothing has been marked complete yet.</div>`)}
+    `;
 }
-function hostEventStartDate(e) {
-    const date = String(e.event_date || "");
-    const time = String(e.start_time || "00:00").slice(0, 5);
-    return new Date(`${date}T${time}:00`);
-}
-
-function hostCanUnclaim(e) {
-    if (!currentUser || String(e.host_claimed_by || "") !== String(currentUser.id || "")) return false;
-    const start = hostEventStartDate(e).getTime();
-    if (!Number.isFinite(start)) return false;
-    return Date.now() < start - (60 * 60 * 1000);
-}
-
-function hostRenderSlot(e) {
-    const source = e.host_source === "random" ? "Random" : e.host_source === "planned" ? "Planned / Protected" : "Manual / Existing";
-    const locked = e.host_locked || e.host_source === "planned";
-    const claimed = Boolean(e.host_claimed_by || e.host_claimed_discord);
-    const mine = claimed && currentUser && String(e.host_claimed_by || "") === String(currentUser.id || "");
-    const claimedStaff = (staff || []).find(s => String(s.discord_id || '') === String(e.host_claimed_discord || '') || String(s.id || '') === String(e.host_claimed_by || ''));
-    const claimedDisplayName = mine ? getKngDisplayName() : (e.host_claimed_name || claimedStaff?.name || "Staff");
-    const claimLabel = claimed ? `Claimed by ${escapeHtml(claimedDisplayName)}` : "";
-    const claimButton = currentUser && permissionRank() >= 1 && !claimed ? `<button class="primary-button small host-claim-btn" onclick="claimHostSlot('${e.id}')">🎤 Claim</button>` : "";
-    const unclaimButton = mine && hostCanUnclaim(e) ? `<button class="secondary-button small host-unclaim-btn" onclick="unclaimHostSlot('${e.id}')">↩ Unclaim</button>` : "";
-    const unclaimLocked = mine && !hostCanUnclaim(e) ? `<span class="host-unclaim-locked" title="Unclaiming closes one hour before the event starts">🔒 Locked</span>` : "";
-    return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}${claimLabel ? ` · <span class="host-claimed">${claimLabel}</span>` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${claimButton}${unclaimButton}${unclaimLocked}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`;
-}
-
-async function claimHostSlot(id) {
-    if (!currentUser || permissionRank() < 1) return alert("You must be signed in as KNG staff to claim an event.");
-    const { data, error } = await supabaseClient.rpc("claim_event_host_slot", { p_event_id: id, p_display_name: getKngDisplayName() });
-    if (error) return alert(error.message);
-    if (data === false) return alert("That event has already been claimed by another staff member.");
-    await loadEvents();
-    render();
-}
-
-async function unclaimHostSlot(id) {
-    if (!currentUser) return;
-    const event = (allEvents || []).find(e => String(e.id) === String(id));
-    if (event && !hostCanUnclaim(event)) return alert("You can only unclaim an event more than one hour before it starts.");
-    const { data, error } = await supabaseClient.rpc("unclaim_event_host_slot", { p_event_id: id });
-    if (error) return alert(error.message);
-    if (data === false) return alert("You cannot unclaim this event.");
-    await loadEvents();
-    render();
-}
-
-function setHostPlannerDate(value){ if(!value)return; hostPlannerDate=value; try{localStorage.setItem("kng.hostPlannerDate",value);}catch(_){} render(); }
-function toggleHostPanel(id) { const el=document.getElementById(id); if(el) el.hidden=!el.hidden; }
-async function submitPlannedHostEvent(e){ e.preventDefault(); if(!canManage())return; const d=Object.fromEntries(new FormData(e.target).entries()), err=document.getElementById("plannedHostError"); err.textContent=""; if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time."; if(d.repeat!=="none"&&d.repeat_until<d.event_date)return err.textContent="Repeat until must be on or after the first date."; const dates=buildRecurringDates(d.event_date,d.repeat,d.repeat_until); const blocked=dates.filter(x=>hostSlotOccupied(x,d.start_time,d.end_time)); if(blocked.length)return err.textContent=`These dates already have an event in that slot: ${blocked.join(", ")}`; const group=dates.length>1?crypto.randomUUID():null; const rows=dates.map(x=>({title:d.title.trim(),event_type_id:d.type_id,event_date:x,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,location:null,staff_required:0,visibility:"public",recurrence_group_id:group,recurrence_rule:d.repeat==="none"?null:d.repeat,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"planned",host_locked:true})); const {error}=await supabaseClient.from("events").insert(rows); if(error)return err.textContent=error.message; await writeAudit("host.planned_created",{title:d.title,dates,repeat:d.repeat}); await loadEvents(); render(); }
-async function submitManualHostEvent(e){ e.preventDefault(); if(!canManage())return; const d=Object.fromEntries(new FormData(e.target).entries()), err=document.getElementById("manualHostError"); err.textContent=""; if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time."; if(hostSlotOccupied(d.event_date,d.start_time,d.end_time))return err.textContent="That time slot already has an event. Edit the existing slot instead."; const typeId=hostTypeIdFor(d.title); if(!typeId)return err.textContent="No usable Event type exists in the database."; const payload={title:d.title,event_type_id:typeId,event_date:d.event_date,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,location:null,staff_required:0,visibility:"public",recurrence_group_id:null,recurrence_rule:null,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"manual",host_locked:d.locked==="on"}; const {error}=await supabaseClient.from("events").insert(payload); if(error)return err.textContent=error.message; await writeAudit("host.manual_created",payload); await loadEvents(); render(); }
-async function randomiseHostSchedule(){ if(!canManage())return; const date=document.getElementById("hostRandomDate")?.value,start=document.getElementById("hostRandomStart")?.value||"18:00",end=document.getElementById("hostRandomEnd")?.value||"23:30",interval=Math.max(30,Number(document.getElementById("hostRandomInterval")?.value||30)); if(!date||hostTimeToMinutes(end)<=hostTimeToMinutes(start))return alert("Choose a valid randomiser time range."); const typeId=hostTypeIdFor("Event"); if(!typeId)return alert("No Event type exists in the database."); const choices=hostEventPool(),rows=[]; let previous=""; for(let m=hostTimeToMinutes(start);m+interval<=hostTimeToMinutes(end);m+=interval){const a=hostMinutesToTime(m),b=hostMinutesToTime(m+interval);if(hostSlotOccupied(date,a,b))continue;const available=choices.filter(x=>x!==previous),title=available[Math.floor(Math.random()*available.length)];previous=title;rows.push({title,event_type_id:typeId,event_date:date,start_time:a,end_time:b,description:"Randomised by KNG Entertainment Host an Event",location:null,staff_required:0,visibility:"public",recurrence_group_id:null,recurrence_rule:null,status:"scheduled",is_meeting:false,created_by:currentUser.id,updated_by:currentUser.id,host_source:"random",host_locked:false});} if(!rows.length)return alert("There are no empty slots in that range to randomise."); const {error}=await supabaseClient.from("events").insert(rows); if(error)return alert(error.message); await writeAudit("host.randomised",{date,start,end,interval,created:rows.map(r=>r.title)}); await loadEvents(); render(); }
-function openHostEdit(id){ if(!canManage())return; const e=allEvents.find(x=>String(x.id)===String(id)); if(!e)return; const titleOptions=hostAllEventChoices().map(x=>`<option value="${escapeAttribute(x)}" ${x===e.title?"selected":""}>${escapeHtml(x)}</option>`).join(""); showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Host an Event</span><h2>Edit Event Slot</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="hostEditForm" class="ops-form"><label>Event<select name="title">${titleOptions}</select></label><label>Date<input name="event_date" type="date" value="${escapeAttribute(e.event_date)}" required></label><label>Start<input name="start_time" type="time" value="${escapeAttribute(String(e.start_time||"").slice(0,5))}" required></label><label>End<input name="end_time" type="time" value="${escapeAttribute(String(e.end_time||"").slice(0,5))}" required></label><label>Note<input name="description" maxlength="500" value="${escapeAttribute(e.description||"")}" placeholder="Optional note"></label><label class="host-check"><input type="checkbox" name="locked" ${e.host_locked||e.host_source==="planned"?"checked":""}> Protect this slot from randomiser</label><div id="hostEditError" class="form-error"></div><div class="modal-footer"><button type="button" class="secondary-button" onclick="closeModal()">Cancel</button><button type="button" class="danger-button" onclick="deleteHostEvent('${e.id}')">Delete</button><button type="submit" class="primary-button">Save Changes</button></div></form></div>`); document.getElementById("hostEditForm")?.addEventListener("submit",async ev=>{ev.preventDefault();const d=Object.fromEntries(new FormData(ev.target).entries()),err=document.getElementById("hostEditError");err.textContent="";if(d.end_time<=d.start_time)return err.textContent="End time must be later than start time.";if(hostSlotOccupied(d.event_date,d.start_time,d.end_time,e.id))return err.textContent="That new slot overlaps another event.";const typeId=hostTypeIdFor(d.title);const payload={title:d.title,event_type_id:typeId||e.event_type_id,event_date:d.event_date,start_time:d.start_time,end_time:d.end_time,description:d.description?.trim()||null,updated_by:currentUser.id,host_locked:d.locked==="on"};const {error}=await supabaseClient.from("events").update(payload).eq("id",e.id);if(error)return err.textContent=error.message;await writeAudit("host.slot_updated",{event_id:e.id,title:d.title,date:d.event_date,start:d.start_time,end:d.end_time});closeModal();await loadEvents();render();}); }
-async function deleteHostEvent(id){if(!canManage()||!confirm("Delete this event slot?"))return;const {error}=await supabaseClient.from("events").delete().eq("id",id);if(error)return alert(error.message);await writeAudit("host.slot_deleted",{event_id:id});closeModal();await loadEvents();render();}
 
 function renderOpsReductions() {
     return `${opsErrorNotice("reductions")}
@@ -2905,7 +2664,7 @@ function renderOpsSecurity() {
     return `${opsErrorNotice("security")}
         <div class="ops-grid-two">
             ${canManage() ? opsCard("Crashout timeout", `<form id="timeoutForm" class="ops-form"><textarea name="emails" rows="5" placeholder="user1@example.com\nuser2@example.com\nuser3@example.com" required></textarea><input name="minutes" type="number" min="1" max="10080" value="30" required><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Timeout everyone</button><small>Manual timeout. Automatic crashout protection is ${Number(crashoutSettings.max_removals)} removals in ${Number(crashoutSettings.window_minutes)} minutes, then ${Number(crashoutSettings.timeout_minutes)} minutes timed out.</small></form>`) : ""}
-            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" value="Inactivity" placeholder="Reason"><button class="danger-button">Kick off &amp; block access</button><small>Kick-offs default to <b>Inactivity</b>. Crashout protection stops an actor exceeding the configured removal limit.</small></form>`) : ""}
+            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Kick off &amp; block access</button><small>Crashout protection stops an actor exceeding the configured removal limit.</small></form>`) : ""}
             ${isDirector() ? opsCard("Crashout protection settings", `<form id="crashoutSettingsForm" class="ops-form"><label>Maximum removals<input name="max_removals" type="number" min="1" max="50" value="${Number(crashoutSettings.max_removals)}" required></label><label>Window (minutes)<input name="window_minutes" type="number" min="1" max="1440" value="${Number(crashoutSettings.window_minutes)}" required></label><label>Timeout (minutes)<input name="timeout_minutes" type="number" min="1" max="10080" value="${Number(crashoutSettings.timeout_minutes)}" required></label><button class="primary-button">Save Crashout Limit</button></form>`) : ""}
         </div>
         ${opsCard("Active timeouts", (ops.timeouts||[]).length ? `<div class="ops-list">${ops.timeouts.filter(t=>new Date(t.expires_at)>new Date()).map(t=>`<div class="ops-row"><div><b>${escapeHtml(t.email)}</b><small>${escapeHtml(t.reason||"")} · until ${formatOpsDateTime(t.expires_at)}</small></div><span class="ops-pill">Timed out</span></div>`).join("")}</div>` : `<div class="ops-empty">No active timeouts.</div>`)}
@@ -2915,9 +2674,19 @@ function renderOpsSecurity() {
 }
 
 function renderOpsPrizes() {
-    const wins=ops.prizeWins||[], allowed=["dinheirosujo","dollars","vipevento1"], prizes=(ops.prizes||[]).filter(p=>allowed.includes(String(p.code||"").toLowerCase()));
-    return `${opsErrorNotice("prizes")}<div class="ops-toolbar prize-tabs"><button class="integrated-nav-btn active">🏆 Prize Win</button><button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button></div><div class="ops-grid-two prize-page-grid">${canManage()?opsCard("Event Winner",`<form id="prizeWinPageForm" class="ops-form prize-win-page-form"><label>In-game ID<input name="discord_id" maxlength="50" placeholder="e.g. 33333" required></label><label>Type<select name="prize_id" required><option value="">Select prize type</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select></label><label>Amount<input id="prizeWinAmount" name="amount" type="number" readonly placeholder="Auto-filled from type"></label><label>Reason<input name="reason" maxlength="160" placeholder="e.g. Event Winner" required></label><label>Command<div id="prizeWinPageCommand" class="command-preview">Enter the ID, choose a type and enter a reason.</div></label><div class="prize-command-actions"><button type="button" class="secondary-button" id="copyPrizePageCommand" disabled>Copy command</button><button type="submit" class="primary-button">Record Win &amp; Generate Command</button></div><div id="prizeWinPageError" class="form-error"></div></form>`):""}${opsCard("Prize catalogue",prizes.length?`<div class="prize-grid">${prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0).toLocaleString()}</strong><small>!additem ID ${escapeHtml(p.code)} ${Number(p.amount||0)} Reason</small></div>`).join("")}</div><small>Choose a prize type on the left. The amount and command code fill automatically.</small>`:`<div class="ops-empty">No prize types configured. Run the migration to seed the three event prizes.</div>`)}</div><div id="commandVault">${opsCard("Prize wins & command vault",wins.length?`<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>In-game ID</th><th>Prize</th><th>Reason</th><th>Command</th><th>Done</th><th>Won</th></tr></thead><tbody>${wins.map(w=>`<tr class="${w.completed?"prize-win-complete":""}"><td>${escapeHtml(w.discord_id||"Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label||"Prize")}</td><td>${escapeHtml(w.reason||"")}</td><td><code class="command-code">${escapeHtml(w.command||"")}</code></td><td><label class="prize-done"><input type="checkbox" class="prize-done-toggle" data-id="${w.id}" ${w.completed?"checked":""}><span>${w.completed?"Done":"Pending"}</span></label></td><td>${formatOpsDateTime(w.created_at)}</td></tr>`).join("")}</tbody></table></div>`:`<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
+    const wins = ops.prizeWins || [];
+    return `${opsErrorNotice("prizes")}
+        <div class="ops-toolbar prize-tabs">
+            <button class="integrated-nav-btn active" onclick="openPrizeWinModal()">🏆 Prize Win</button>
+            <button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button>
+        </div>
+        <div class="ops-grid-two">
+            ${canManage() ? opsCard("Prize catalogue", `<form id="prizeForm" class="ops-form"><input name="label" maxlength="100" placeholder="Prize name" required><input name="code" maxlength="80" placeholder="Item code" required><input name="amount" type="number" min="1" required placeholder="Amount"><input name="command_template" maxlength="300" placeholder="Command template, e.g. /giveitem {discord_id} {code} {amount}" value="/giveitem {discord_id} {code} {amount}"><button class="primary-button">Add prize</button><small>Placeholders: {discord_id}, {name}, {code}, {amount}</small></form>`) : ""}
+            ${opsCard("Prize catalogue", ops.prizes.length ? `<div class="prize-grid">${ops.prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0)}</strong><small>${escapeHtml(p.command_template || "")}</small></div>`).join("")}</div>` : `<div class="ops-empty">No prizes configured yet.</div>`)}
+        </div>
+        <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
 }
+
 function renderOpsAccess() {
     const pending = accessRequests.filter(r => r.status === "pending");
     const decided = accessRequests.filter(r => r.status !== "pending").slice(0, 50);
@@ -2945,12 +2714,9 @@ function bindOpsHandlers() {
     });
     document.getElementById("openTrackerAdd")?.addEventListener("click", openTrackerAddModal);
     document.getElementById("pointsForm")?.addEventListener("submit", submitPoints);
-    document.getElementById("actionsPointsForm")?.addEventListener("submit", submitPoints);
-    document.getElementById("plannedHostForm")?.addEventListener("submit", submitPlannedHostEvent);
-    document.getElementById("manualHostForm")?.addEventListener("submit", submitManualHostEvent);
+    document.getElementById("hungryForm")?.addEventListener("submit", submitHungry);
     document.getElementById("reductionForm")?.addEventListener("submit", submitReduction);
     document.getElementById("prizeForm")?.addEventListener("submit", submitPrize);
-    bindPrizePageHandlers();
     document.getElementById("helperForm")?.addEventListener("submit", submitHelper);
     document.getElementById("timeoutForm")?.addEventListener("submit", submitTimeout);
     document.getElementById("blockForm")?.addEventListener("submit", submitBlock);
@@ -3062,7 +2828,7 @@ async function submitBlock(e) {
     if (!canManage()) return;
     const data = new FormData(e.target);
     const emails = String(data.get("emails") || "").split(/\s*[\n,;]\s*/).map(x=>x.trim().toLowerCase()).filter(Boolean);
-    const reason = String(data.get("reason") || "Inactivity").trim() || "Inactivity";
+    const reason = String(data.get("reason") || "").trim();
     if (!emails.length) return;
     const windowStart = new Date(Date.now() - Number(crashoutSettings.window_minutes || 60) * 60000).toISOString();
     const { count } = await supabaseClient.from('ops_security').select('id', { count: 'exact', head: true }).eq('actor_id', currentUser.id).eq('event_type', 'team.removed').gte('created_at', windowStart);
@@ -3096,9 +2862,46 @@ async function unblockAccount(email) {
     await loadOpsData(); render();
 }
 
-function bindPrizePageHandlers(){const form=document.getElementById("prizeWinPageForm");if(!form)return;const update=()=>{const prize=ops.prizes.find(p=>p.id===form.prize_id.value&&["dinheirosujo","dollars","vipevento1"].includes(String(p.code||"").toLowerCase())),amount=document.getElementById("prizeWinAmount"),box=document.getElementById("prizeWinPageCommand"),copy=document.getElementById("copyPrizePageCommand");if(amount)amount.value=prize?Number(prize.amount||0):"";const command=prize&&form.discord_id.value.trim()&&form.reason.value.trim()?`!additem ${form.discord_id.value.trim()} ${prize.code} ${Number(prize.amount||0)} ${form.reason.value.trim()}`:"Enter the ID, choose a type and enter a reason.";if(box)box.textContent=command;if(copy){copy.disabled=command.startsWith("Enter the ID");copy.dataset.command=command;}};form.addEventListener("input",update);form.addEventListener("change",update);document.getElementById("copyPrizePageCommand")?.addEventListener("click",function(){copyCommand(this.dataset.command,this);});form.addEventListener("submit",submitPrizeWinPage);document.querySelectorAll(".prize-done-toggle").forEach(cb=>cb.addEventListener("change",()=>markPrizeDone(cb.dataset.id,cb.checked)));update();}
-async function submitPrizeWinPage(e){e.preventDefault();if(!canManage())return;const form=e.target,data=new FormData(form),discord_id=String(data.get("discord_id")||"").trim(),reason=String(data.get("reason")||"").trim(),prize_id=String(data.get("prize_id")||""),prize=ops.prizes.find(p=>p.id===prize_id&&["dinheirosujo","dollars","vipevento1"].includes(String(p.code||"").toLowerCase())),err=document.getElementById("prizeWinPageError");if(err)err.textContent="";if(!discord_id||!prize||!reason){if(err)err.textContent="Enter an in-game ID, choose a prize and enter a reason.";return;}const command=`!additem ${discord_id} ${prize.code} ${Number(prize.amount||0)} ${reason}`,payload={prize_id,recipient_name:discord_id,discord_id,amount:Number(prize.amount||0),reason,command,won_by:currentUser.id,completed:false};const {error}=await supabaseClient.from("ops_prize_wins").insert(payload);if(error){if(err)err.textContent=error.message;return;}await writeAudit("prize.won",payload);await loadOpsData();render();}
-async function markPrizeDone(id,done){if(!canManage())return;const payload={completed:done,completed_at:done?new Date().toISOString():null,completed_by:done?currentUser.id:null},{error}=await supabaseClient.from("ops_prize_wins").update(payload).eq("id",id);if(error)return alert(error.message);await writeAudit(done?"prize.completed":"prize.reopened",{id});await loadOpsData();render();}
+async function openPrizeWinModal() {
+    if (!canManage()) return showLoginMessage();
+    const prizes = ops.prizes || [];
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Record Prize Win</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form"><input name="recipient_name" maxlength="100" placeholder="Winner name" required><input name="discord_id" maxlength="50" placeholder="Discord / in-game ID" required><select name="prize_id" required><option value="">Select prize</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)} · ${escapeHtml(p.code)} · ${Number(p.amount||0)}</option>`).join("")}</select><div class="command-preview" id="commandPreview">Select a prize to generate the command.</div><button class="primary-button">Record Win &amp; Generate Command</button></form></div>`);
+    document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
+}
+
+function buildPrizeCommand(prize, name, discordId) {
+    const template = prize?.command_template || "/giveitem {discord_id} {code} {amount}";
+    return template.replaceAll("{discord_id}", discordId).replaceAll("{name}", name).replaceAll("{code}", prize?.code || "").replaceAll("{amount}", String(prize?.amount || 0));
+}
+
+function updatePrizeCommandPreview() {
+    const f = document.getElementById("prizeWinForm");
+    if (!f) return;
+    const prize = ops.prizes.find(p=>p.id === f.prize_id.value);
+    const command = buildPrizeCommand(prize, f.recipient_name.value.trim(), f.discord_id.value.trim());
+    const box = document.getElementById("commandPreview");
+    if (box) box.textContent = command;
+}
+
+async function submitPrizeWin(e) {
+    e.preventDefault();
+    if (!canManage()) return;
+    const data = new FormData(e.target);
+    const recipient_name = String(data.get("recipient_name") || "").trim();
+    const discord_id = String(data.get("discord_id") || "").trim();
+    const prize_id = String(data.get("prize_id") || "");
+    const prize = ops.prizes.find(p=>p.id === prize_id);
+    if (!prize) return alert("Select a prize.");
+    const command = buildPrizeCommand(prize, recipient_name, discord_id);
+    const payload = { prize_id, recipient_name, discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id };
+    const { error } = await supabaseClient.from("ops_prize_wins").insert(payload);
+    if (error) return alert(error.message);
+    await writeAudit("prize.won", payload);
+    closeModal(); await loadOpsData(); render();
+}
+
 async function copyCommand(command, button) {
     try { await navigator.clipboard.writeText(command); button.textContent = "Copied"; setTimeout(()=>button.textContent="Copy",1200); }
     catch (_) { alert(command); }
@@ -3144,7 +2947,7 @@ function applyEventPreset(preset) {
 function renderAccessRestriction() {
     const timeout = currentTimeout;
     const blocked = accessBlock;
-    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
+    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo crown-logo">♛</div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
 }
 
 function formatOpsDateTime(value) {
@@ -3158,7 +2961,7 @@ window.loginWithDiscord = loginWithDiscord;
 window.requestStaffAccess = requestStaffAccess;
 window.approveAccessRequest = approveAccessRequest;
 window.rejectAccessRequest = rejectAccessRequest;
-window.openPrizeWinModal = () => switchOpsView("prizes");
+window.openPrizeWinModal = openPrizeWinModal;
 window.copyCommand = copyCommand;
 window.submitCrashoutSettings = submitCrashoutSettings;
 
@@ -3184,51 +2987,18 @@ async function loadInteractionData() {
 
 function interactionHeader(title, subtitle) {
     return `<header class="schedule-header ops-header interaction-header">
-        <div class="schedule-brand"><div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
+        <div class="schedule-brand"><div class="schedule-logo crown-logo">♛</div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
         <div class="schedule-header-actions">
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
             ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
-            <button class="header-button public-f3-button" onclick="switchOpsView('public-f3')">🎮 Public F3</button>
             ${currentUser ? `<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}<button class="header-button" onclick="goToday()">Today</button>
         </div>
     </header>`;
 }
 
-function renderPublicF3Calendar() {
-    const today = formatDate(new Date());
-    const now = new Date();
-    const publicEvents = (allEvents || [])
-        .filter(e => e.event_date === today && !e.is_meeting && e.status !== 'cancelled' && (e.visibility || 'public') !== 'staff')
-        .sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
-
-    let nextFound = false;
-    const cards = publicEvents.map(e => {
-        const start = new Date(`${e.event_date}T${String(e.start_time || '00:00:00').slice(0,8)}`);
-        const end = new Date(`${e.event_date}T${String(e.end_time || e.start_time || '00:00:00').slice(0,8)}`);
-        const passed = end.getTime() <= now.getTime();
-        const upcoming = !passed && !nextFound;
-        if (upcoming) nextFound = true;
-        const type = e.event_types?.name || 'Event';
-        const host = e.host_claimed_name ? ` · Hosted by ${e.host_claimed_name}` : '';
-        return `
-            <article class="public-f3-event ${passed ? 'is-passed' : ''} ${upcoming ? 'is-next' : ''}">
-                <div class="public-f3-time"><strong>${formatTime(e.start_time)}</strong><span>${formatTime(e.end_time)}</span></div>
-                <div class="public-f3-event-main">
-                    <div class="public-f3-event-title-row"><h3>${escapeHtml(e.title)}</h3>${upcoming ? `<span class="public-f3-next-badge">NEXT</span>` : ''}</div>
-                    <span class="public-f3-type">${escapeHtml(type)}</span>${e.location ? `<span class="public-f3-location">📍 ${escapeHtml(e.location)}</span>` : ''}${host ? `<span class="public-f3-host">${escapeHtml(host)}</span>` : ''}
-                </div>
-            </article>`;
-    }).join('');
-
-    return `<div class="public-f3-wrap">
-        <section class="public-f3-hero"><div><span class="public-f3-eyebrow">F3 EVENT CALENDAR</span><h2>${new Date(`${today}T00:00:00`).toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</h2><p>Public entertainment events only. Staff meetings and private events are never shown here.</p></div><div class="public-f3-count"><strong>${publicEvents.length}</strong><span>events today</span></div></section>
-        <section class="public-f3-list">${cards || `<div class="ix-empty public-f3-empty"><strong>No public F3 events are scheduled today.</strong><small>Once a public event is added or randomised in Host an Event, it will appear here automatically.</small></div>`}</section>
-    </div>`;
-}
-
 function renderInteractionView() {
-    const publicViews = ["event-suggestions", "public-f3"];
+    const publicViews = ["event-suggestions"];
     const staffOnlyViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame"];
     if (staffOnlyViews.includes(ixView) && permissionRank() < 1) {
         ixView = "event-suggestions";
@@ -3239,8 +3009,7 @@ function renderInteractionView() {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
         "hall-of-fame":["Hall of Fame","Winner frames and event recognition"],
-        "personal-dashboard":["Personal Dashboard","Your daily goal and the useful bits of KNG operations"],
-        "public-f3":["Public F3 Events","Today’s public entertainment schedule"],
+        "daily-goals":["Daily Goals","Track your interaction target"],
         "staff-roster":["Staff Roster","Current KNG Entertainment staff"],
         "event-suggestions":["Event Suggestions","Public ideas and feedback for future events"]
     };
@@ -3254,38 +3023,28 @@ function renderIxViewHtml(){
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
         case "hall-of-fame": return renderHallOfFame();
-        case "personal-dashboard": return renderPersonalDashboard();
+        case "daily-goals": return renderDailyGoals();
         case "staff-roster": return renderStaffRoster();
         case "event-suggestions": return renderEventSuggestions();
-        case "public-f3": return renderPublicF3Calendar();
         default: return renderInteractionDashboard();
     }
 }
 
 function renderInteractionDashboard(){
-    const upcomingEvents=getUpcomingDashboardEvents(8);
+    const today=formatDate(new Date());
+    const todayEvents=allEvents.filter(e=>e.event_date===today && !e.is_meeting);
     const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e));
     const popular=[...completed].filter(e=>Number.isFinite(Number(e.attendance_count))).sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0)).slice(0,5);
-    const scheduleHtml=upcomingEvents.length
-        ? `<div class="ix-schedule-list">${upcomingEvents.map(e=>`<div><span>${escapeHtml(dashboardEventDateLabel(e))}</span><b>${escapeHtml(e.title)}</b><small>${formatTime(e.start_time)} · ${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`
-        : `<div class="ix-empty">No upcoming events are scheduled. The calendar is, for once, allowed to breathe.</div>`;
-    const popularHtml=popular.length
-        ? `<div class="ix-table popular-events-table">${popular.map((e,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_date)} · ${escapeHtml(e.event_types?.name||'Event')}</small></div><span><b>${Number(e.attendance_count||0)}</b><small>attended</small></span></div>`).join('')}</div>`
-        : `<div class="ix-empty">No completed attendance records yet.</div>`;
     return `<div class="ix-command-grid">
       <div class="ix-stat-row">
-        <div class="ix-stat"><span>Events Today</span><strong>${(allEvents||[]).filter(e=>e.event_date===formatDate(new Date()) && !e.is_meeting).length}</strong><small>scheduled entertainment events</small></div>
+        <div class="ix-stat"><span>Events Today</span><strong>${todayEvents.length}</strong><small>scheduled entertainment events</small></div>
         <div class="ix-stat"><span>Completed Events</span><strong>${completed.length}</strong><small>manually confirmed</small></div>
         <div class="ix-stat"><span>Event Ideas</span><strong>${(ixData.suggestions||[]).length}</strong><small>community suggestions</small></div>
         <div class="ix-stat"><span>Top Attendance</span><strong>${popular[0]?.attendance_count || 0}</strong><small>${popular[0] ? escapeHtml(popular[0].title) : 'No completed events yet'}</small></div>
       </div>
       <div class="ix-two-col">
-        ${ixPanel("Next Events",scheduleHtml,`<span class="ix-panel-note">Rolling from the current time</span>`)}
-        ${ixPanel("Most Popular Events",popularHtml,`<span class="ix-panel-note">Highest recorded attendance</span>`)}
-      </div>
-      <div class="ix-panel">
-        <div class="ix-panel-head"><div><h3>Quick Actions</h3><small>Staff shortcuts</small></div></div>
-        <div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('personal-dashboard')">Personal Dashboard</button>`:''}</div>
+        ${ixPanel("Today's Schedule", todayEvents.length?`<div class="ix-schedule-list">${todayEvents.slice(0,10).map(e=>`<div><span>${formatTime(e.start_time)}</span><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`:`<div class="ix-empty">Nothing scheduled today.</div>`)}
+        ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('daily-goals')">Daily Goals</button>`:''}</div>`)}
       </div>
     </div>`;
 }
@@ -3293,33 +3052,11 @@ function renderInteractionDashboard(){
 function ixPanel(title,body,action=""){ return `<section class="ix-panel"><div class="ix-panel-head"><div><h3>${escapeHtml(title)}</h3></div>${action}</div>${body}</section>`; }
 
 function renderInteractionLeaderboard(){
-    const hosted=new Map();
-    const names=new Map();
-    for(const e of (allEvents||[])){
-        const id=String(e.host_claimed_by||'').trim();
-        if(!id) continue;
-        const key=id;
-        hosted.set(key,(hosted.get(key)||0)+1);
-        const claimedStaff = (staff || []).find(s => String(s.discord_id || '') === String(e.host_claimed_discord || '') || String(s.id || '') === String(e.host_claimed_by || ''));
-        names.set(key,String(e.host_claimed_name || claimedStaff?.name || 'Staff'));
-    }
-    const hostedRows=[...hosted.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:names.get(id)||'Staff'}));
-    const pointMap=new Map();
-    for(const p of (ops.points||[])){
-        const id=String(p.staff_id||p.user_id||'').trim();
-        if(!id) continue;
-        pointMap.set(id,(pointMap.get(id)||0)+Number(p.points||0));
-    }
-    const pointRows=[...pointMap.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:staff.find(s=>String(s.id)===id)?.name||'Staff'}));
-    const activityMap=new Map();
-    for(const x of (ops.tracker||[])){
-        const id=String(x.staff_id||'').trim();
-        if(!id) continue;
-        activityMap.set(id,(activityMap.get(id)||0)+1);
-    }
-    const activityRows=[...activityMap.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:staff.find(s=>String(s.id)===id)?.name||'Staff'}));
-    const rows=(list,label,unit)=>list.length?`<div class="ix-table">${list.slice(0,10).map((r,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(r.name)}</b></div><span><b>${r.total}</b><small>${unit}</small></span></div>`).join('')}</div>`:`<div class="ix-empty">No ${escapeHtml(label.toLowerCase())} recorded yet.</div>`;
-    return `<div class="ix-two-col leaderboard-sections"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Events Hosted</h3><small>Staff with the most claimed event slots</small></div></div>${rows(hostedRows,'hosted events','events hosted')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Points</h3><small>Highest staff point totals</small></div></div>${rows(pointRows,'points','points')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Activity</h3><small>Logged KNG activity</small></div></div>${rows(activityRows,'activity','activities')}</div></div>`;
+    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e) && Number.isFinite(Number(e.attendance_count)));
+    const most=[...completed].sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0));
+    const least=[...completed].sort((a,b)=>Number(a.attendance_count||0)-Number(b.attendance_count||0));
+    const eventRows=(rows, empty)=>rows.length?`<div class="ix-table">${rows.map((e,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||'Event')} · ${escapeHtml(e.event_date)}</small></div><span><b>${Number(e.attendance_count||0)}</b><small>attended</small></span><span class="ix-pill">${e.winner_name?`Winner: ${escapeHtml(e.winner_name)}`:'Completed'}</span></div>`).join('')}</div>`:`<div class="ix-empty">${empty}</div>`;
+    return `<div class="ix-two-col"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Popular Events</h3><small>Highest recorded attendance</small></div></div>${eventRows(most,'No completed attendance records yet.')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Least Popular Events</h3><small>Lowest recorded attendance</small></div></div>${eventRows(least,'No completed attendance records yet.')}</div></div>`;
 }
 
 function renderAnnouncements(){ return ''; }
@@ -3354,12 +3091,12 @@ function renderHallOfFame(){
     const selected=String(current.frame||'Original').toLowerCase().replace(/\s+/g,'-') || 'original';
     const colour=current.frame_colour || '#ff19b7';
     const safeUrl=escapeHtml(current.image_url||'');
-    return `${ixSchemaNotice("ix_hall_of_fame")}<div class="ix-hof-layout ix-hof-layout-v2">
+    return `<div class="ix-hof-layout ix-hof-layout-v2">
       <div class="ix-hof-canvas ix-hof-stage">
         <div class="hof-composer" id="hofComposer" data-frame="${escapeHtml(selected)}" style="--hof-custom:${escapeHtml(colour)}">
           <img id="hofFrameImage" class="hof-frame-image" src="${hofFrameAsset(selected)}" alt="KNG Estate Roleplay Hall of Fame frame">
           <div class="hof-photo-window" id="hofPhotoWindow">
-            ${safeUrl?`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${safeUrl}" alt="Winner" style="--hof-scale:${Number(current.photo_scale)||1};--hof-x:${Number(current.photo_x)||0}px;--hof-y:${Number(current.photo_y)||0}px">`:`<span class="hof-photo-placeholder">Add winner photo</span>`}
+            ${safeUrl?`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${safeUrl}" alt="Winner" style="--hof-scale:1;--hof-x:0px;--hof-y:0px">`:`<span class="hof-photo-placeholder">Add winner photo</span>`}
           </div>
         </div>
       </div>
@@ -3369,12 +3106,9 @@ function renderHallOfFame(){
           <div class="hof-control-section"><b>Frame Library</b><div class="ix-frame-grid hof-frame-grid">${frames.map(f=>`<button class="ix-frame-chip hof-frame-chip ${selected===f.key?'active':''}" data-hof-frame="${f.key}" onclick="selectHofFrame('${f.key}')">${escapeHtml(f.name)}</button>`).join('')}</div></div>
           <label>Winner name<input id="hofWinnerName" value="${escapeHtml(current.winner_name||'')}" placeholder="Winner name"></label>
           <div class="hof-photo-actions">${canManage()?`<button class="header-button" onclick="openHofUpload()">Add winner photo</button>`:''}<button class="header-button" onclick="resetHofPhoto()">Reset photo</button></div>
-          <div class="hof-colour-panel" id="hofCustomControls">
-            <div class="hof-colour-top"><div class="hof-colour-swatch" id="hofColourSwatch" style="background:${escapeAttribute(colour)}" onclick="document.getElementById('hofColour')?.click()"></div><input id="hofHex" class="hof-hex-input" value="${escapeAttribute(colour.toUpperCase())}" maxlength="7" aria-label="Hex colour" oninput="applyHofHex(this.value)"><span id="hofRgb" class="hof-rgb">${escapeHtml(hofRgbLabel(colour))}</span></div>
-            <label class="hof-range-label"><span>Hue</span><input id="hofHue" type="range" min="0" max="359" value="${hofHueFromHex(colour)}" oninput="applyHofHue(this.value)"><small id="hofHueValue">${hofHueFromHex(colour)}°</small></label>
-            <label class="hof-range-label"><span>Intensity</span><input id="hofIntensity" type="range" min="0" max="100" value="${Math.round((Number(current.intensity)||100))}" oninput="applyHofCustomIntensity(this.value)"><small id="hofIntensityValue">${Math.round((Number(current.intensity)||100))}%</small></label>
-            <button type="button" class="secondary-button" onclick="resetHofColour()">Reset colour</button>
-            <input id="hofColour" type="color" value="${escapeAttribute(colour)}" oninput="applyHofCustomColour(this.value)" style="position:absolute;left:-9999px;opacity:0;pointer-events:none">
+          <div class="hof-custom-controls" id="hofCustomControls">
+            <label>Custom colour<input id="hofColour" type="color" value="${escapeHtml(colour)}" oninput="applyHofCustomColour(this.value)"></label>
+            <label>Intensity<input id="hofIntensity" type="range" min="0" max="100" value="${Math.round((Number(current.intensity)||100))}" oninput="applyHofCustomIntensity(this.value)"></label>
           </div>
           <div class="hof-help">Drag the winner photo inside the black box. Scroll to zoom.</div>
           <div class="hof-action-row">${canManage()?`<button class="primary-button" onclick="saveHallOfFame()">Save Winner</button>`:""}<button class="header-button" onclick="downloadHallOfFame()">Download</button></div>
@@ -3385,48 +3119,9 @@ function renderHallOfFame(){
 
 function hofFrameAsset(key){
     if(key==='original') return 'kng-hof-original.png';
-    if(['gold','emerald','ocean','sunset','pink','grey-scale','colour-wheel','fire','rainbow','custom'].includes(key)) return `kng-hof-${key}.png`;
+    if(['gold','emerald','ocean','sunset','pink','grey-scale'].includes(key)) return `kng-hof-${key}.png`;
     return 'kng-hof-grey-scale.png';
 }
-function hofRgbLabel(hex){
-    const value=String(hex||'').replace('#','');
-    if(!/^[0-9a-fA-F]{6}$/.test(value)) return 'rgb(255, 25, 183)';
-    return `rgb(${parseInt(value.slice(0,2),16)}, ${parseInt(value.slice(2,4),16)}, ${parseInt(value.slice(4,6),16)})`;
-}
-function hofHueFromHex(hex){
-    const value=String(hex||'').replace('#','');
-    if(!/^[0-9a-fA-F]{6}$/.test(value)) return 330;
-    const r=parseInt(value.slice(0,2),16)/255,g=parseInt(value.slice(2,4),16)/255,b=parseInt(value.slice(4,6),16)/255;
-    const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min; let h=0;
-    if(d){ if(max===r) h=((g-b)/d)%6; else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360; }
-    return Math.round(h);
-}
-function hofHslToHex(h,s=90,l=55){
-    s/=100;l/=100;const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;let r=0,g=0,b=0;
-    if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
-    return '#'+[r,g,b].map(v=>Math.round((v+m)*255).toString(16).padStart(2,'0')).join('').toUpperCase();
-}
-function updateHofColourMeta(value){
-    const hex=String(value||'#FF19B7').toUpperCase();
-    const swatch=document.getElementById('hofColourSwatch'); if(swatch) swatch.style.background=hex;
-    const hexEl=document.getElementById('hofHex'); if(hexEl && /^#[0-9A-F]{6}$/.test(hex)) hexEl.value=hex;
-    const rgb=document.getElementById('hofRgb'); if(rgb) rgb.textContent=hofRgbLabel(hex);
-    const hue=hofHueFromHex(hex); const hueEl=document.getElementById('hofHue'); if(hueEl) hueEl.value=String(hue);
-    const hueValue=document.getElementById('hofHueValue'); if(hueValue) hueValue.textContent=`${hue}°`;
-}
-function applyHofHue(value){
-    const hue=Math.max(0,Math.min(359,Number(value)||0));
-    const hex=hofHslToHex(hue); const input=document.getElementById('hofColour'); if(input) input.value=hex;
-    applyHofCustomColour(hex); const hueValue=document.getElementById('hofHueValue'); if(hueValue) hueValue.textContent=`${hue}°`;
-}
-function applyHofHex(value){
-    let hex=String(value||'').trim().toUpperCase(); if(!hex.startsWith('#')) hex='#'+hex;
-    if(/^#[0-9A-F]{6}$/.test(hex)){ const input=document.getElementById('hofColour'); if(input) input.value=hex; applyHofCustomColour(hex); updateHofColourMeta(hex); }
-}
-function resetHofColour(){
-    const hex='#FF19B7'; const input=document.getElementById('hofColour'); if(input) input.value=hex; applyHofCustomColour(hex); updateHofColourMeta(hex);
-}
-
 function selectHofFrame(key){
     const composer=document.getElementById('hofComposer'); if(!composer) return;
     composer.dataset.frame=key;
@@ -3441,17 +3136,11 @@ function selectHofFrame(key){
 }
 function applyHofCustomColour(value){
     const composer=document.getElementById('hofComposer'); if(!composer)return;
-    const hex=String(value||'#FF19B7').toUpperCase();
-    composer.style.setProperty('--hof-custom',hex);
-    const input=document.getElementById('hofColour'); if(input && input.value!==hex) input.value=hex;
-    updateHofColourMeta(hex);
-    if(composer.dataset.frame==='custom') selectHofFrame('custom');
+    composer.style.setProperty('--hof-custom',value); if(composer.dataset.frame==='custom') selectHofFrame('custom');
 }
 function applyHofCustomIntensity(value){
     const composer=document.getElementById('hofComposer'); if(!composer)return;
-    const intensity=Math.max(0,Math.min(100,Number(value)||0));
-    composer.style.setProperty('--hof-intensity',`${intensity/100}`);
-    const label=document.getElementById('hofIntensityValue'); if(label) label.textContent=`${intensity}%`;
+    composer.style.setProperty('--hof-intensity',`${Math.max(0,Math.min(100,Number(value)||0))/100}`);
 }
 function resetHofPhoto(){
     const img=document.getElementById('hofWinnerPhoto'); if(!img)return;
@@ -3468,27 +3157,12 @@ function bindHofPhotoControls(){
 async function saveHallOfFame(){
     if(!canManage())return;
     const winner_name=document.getElementById('hofWinnerName')?.value.trim();
-    if(!winner_name) return alert('Enter a winner name first.');
     const image_url=document.getElementById('hofWinnerPhoto')?.src || '';
-    const composer=document.getElementById('hofComposer');
-    const frame=composer?.dataset.frame || 'original';
+    const frame=document.getElementById('hofComposer')?.dataset.frame || 'original';
     const frame_colour=document.getElementById('hofColour')?.value||'#ff19b7';
     const intensity=Number(document.getElementById('hofIntensity')?.value||100);
-    const photo=document.getElementById('hofWinnerPhoto');
-    const photo_x=parseFloat(photo?.style.getPropertyValue('--hof-x'))||0;
-    const photo_y=parseFloat(photo?.style.getPropertyValue('--hof-y'))||0;
-    const photo_scale=parseFloat(photo?.style.getPropertyValue('--hof-scale'))||1;
-    const frame_mode=['colour-wheel','fire','rainbow','custom'].includes(frame)?frame:'none';
-    const hue=hofHueFromHex(frame_colour);
-    const payload={winner_name,image_url,frame,frame_colour,frame_mode,hue,intensity,photo_x,photo_y,photo_scale,created_by:currentUser.id};
-    const {error}=await supabaseClient.from('ix_hall_of_fame').insert(payload);
-    if(error){
-        if(String(error.message||'').toLowerCase().includes('schema cache') || String(error.message||'').toLowerCase().includes('does not exist')) {
-            return showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Hall of Fame</span><h2>Database setup required</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">The Hall of Fame table is not installed yet. Run <b>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</b> in Supabase, then refresh the site.</p><div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div></div>`);
-        }
-        return alert(error.message);
-    }
-    await loadInteractionData(); render();
+    const {error}=await supabaseClient.from('ix_hall_of_fame').insert({winner_name,image_url,frame,frame_colour,intensity,created_by:currentUser.id});
+    if(error)return alert(error.message); await loadInteractionData(); render();
 }
 async function downloadHallOfFame(){
     const composer=document.getElementById('hofComposer'); const frameImg=document.getElementById('hofFrameImage'); if(!composer||!frameImg)return;
@@ -3504,86 +3178,27 @@ function openHofUpload(){
     input.click();
 }
 
-function renderPersonalDashboard(){
+function renderDailyGoals(){
     const today=formatDate(new Date());
     const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
     const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
-    const upcoming=getUpcomingDashboardEvents(6);
-    const completed=(allEvents||[]).filter(e=>!e.is_meeting && isEventCompleted(e));
-    const counts={};
-    completed.forEach(e=>{const key=e.title||e.event_types?.name||'Event'; counts[key]=(counts[key]||0)+1;});
-    const completedLeaders=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-    const popular=[...completed].filter(e=>Number.isFinite(Number(e.attendance_count))).sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0)).slice(0,5);
-    const upcomingHtml=upcoming.length?`<div class="ops-list personal-upcoming-list">${upcoming.map(e=>`<div class="ops-row"><div><b>${escapeHtml(e.title)}</b><small>${dashboardEventDateLabel(e)} · ${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small></div><span class="ops-pill">${escapeHtml(e.event_types?.name||'Event')}</span></div>`).join('')}</div>`:`<div class="ops-empty">No upcoming events are currently scheduled.</div>`;
-    const completedHtml=completedLeaders.length?`<div class="ops-list">${completedLeaders.map(([name,count],i)=>`<div class="ops-row"><div><b>#${i+1} · ${escapeHtml(name)}</b><small>Completed ${count} time${count===1?'':'s'}</small></div><span class="ops-pill">${count}</span></div>`).join('')}</div>`:`<div class="ops-empty">No completed events yet.</div>`;
-    const popularHtml=popular.length?`<div class="ops-list">${popular.map((e,i)=>`<div class="ops-row"><div><b>#${i+1} · ${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_date)} · ${escapeHtml(e.event_types?.name||'Event')}</small></div><span class="ops-pill">${Number(e.attendance_count||0)} attended</span></div>`).join('')}</div>`:`<div class="ops-empty">No attendance records yet.</div>`;
-    return `${ixSchemaNotice("ix_daily_goals")}<div class="personal-dashboard">
-        <div class="personal-top-grid">
-            <section class="ix-goal-card personal-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?'Goal completed. Nice work.':`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:''}</section>
-            <div class="personal-stats-grid"><div class="ix-stat"><span>Upcoming</span><strong>${upcoming.length}</strong><small>next scheduled events</small></div><div class="ix-stat"><span>Completed</span><strong>${completed.length}</strong><small>completed events</small></div><div class="ix-stat"><span>Staff</span><strong>${staff.length}</strong><small>active staff</small></div><div class="ix-stat"><span>Ideas</span><strong>${(ixData.suggestions||[]).length}</strong><small>community suggestions</small></div></div>
-        </div>
-        <div class="ix-two-col personal-dashboard-grid">${ixPanel("Upcoming events",upcomingHtml,`<span class="ix-panel-note">Rolling from the current time</span>`)}${ixPanel("Most Completed Events",completedHtml,`<span class="ix-panel-note">Highest completion count</span>`)}</div>
-        ${ixPanel("Most Popular Events",popularHtml,`<span class="ix-panel-note">Highest recorded attendance</span>`)}
-    </div>`;
+    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:""}</div></div>`;
 }
-
-function renderDailyGoals(){ return renderPersonalDashboard(); }
 
 function renderStaffRoster(){
     if (!currentUser || !canManage()) return `<div class="ix-panel"><div class="ix-empty">Staff access required.</div></div>`;
     const allocated=new Set(rosterData.map(r=>String(r.staff_id)));
     const unallocated=staff.filter(s=>!allocated.has(String(s.id)));
-
-    const renderTeam=(team)=>{
-        const rows=rosterData
-            .filter(r=>r.team===team && r.active !== false)
-            .sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||a.display_name||'').localeCompare(String(b.staff?.name||b.display_name||'')));
+    const renderTeam=team=>{
+        const rows=rosterData.filter(r=>r.team===team).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
         const groups=['director','manager','adm','aux','ld','sub_ld','member'];
         return groups.map(level=>{
             const members=rows.filter(r=>r.hierarchy_level===level);
             if(!members.length) return '';
-            return `<div class="roster-group">
-                <div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div>
-                <div class="roster-table">
-                    <div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ACTIONS</span></div>
-                    ${members.map(r=>`<div class="roster-row">
-                        <span class="roster-name"><b>${escapeHtml(r.staff?.name||r.display_name||'Unknown')}</b></span>
-                        <span>${escapeHtml(r.kng_id||'N/A')}</span>
-                        <span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span>
-                        <span>${Number(r.strikes||0)}/3</span>
-                        <span>${r.mentor?'Yes':'N/A'}</span>
-                        <span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">REMOVE</button></span>
-                    </div>`).join('')}
-                </div>
-            </div>`;
-        }).join('') || `<div class="ix-empty">No ${escapeHtml(team)} staff allocated yet.</div>`;
+            return `<div class="roster-group"><div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div><div class="roster-table"><div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ALOPA</span><span>ACTIONS</span></div>${members.map(r=>`<div class="roster-row"><span class="roster-name"><b>${escapeHtml(r.staff?.name||'Unknown')}</b></span><span>${escapeHtml(r.kng_id||'N/A')}</span><span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span><span>${Number(r.strikes||0)}/3</span><span>${r.mentor?'Yes':'N/A'}</span><span>${r.on_alopa?'Yes':'No'}</span><span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">DELETE</button></span></div>`).join('')}</div></div>`;
+        }).join('') || `<div class="ix-empty">No ${team} staff allocated yet.</div>`;
     };
-
-    const exportButton=(team,label)=>`<button class="primary-button small" onclick="copyRosterToDiscord('${team}')">${label} · Copy Discord Roster</button>`;
-
-    return `<div class="roster-page">
-        <div class="ix-panel roster-allocation-panel">
-            <div class="ix-panel-head">
-                <div><h3>Actions & Interactions Role Allocation</h3><small>Approved staff can be placed on either roster. You can move or remove them at any time.</small></div>
-            </div>
-            <div class="allocation-grid">
-                ${unallocated.map(s=>`<div class="allocation-card">
-                    <div><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||'No Discord ID')}</small></div>
-                    <div><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','interactions')">INTERACTIONS</button><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','actions')">ACTIONS</button></div>
-                </div>`).join('') || `<div class="ix-empty">Everyone is already allocated to a side.</div>`}
-            </div>
-        </div>
-
-        <section class="roster-team-panel">
-            <div class="roster-team-title-row"><div><div class="roster-team-title">INTERACTIONS</div><small>${rosterData.filter(r=>r.team==='interactions' && r.active!==false).length} members allocated</small></div>${exportButton('interactions','INTERACTIONS')}</div>
-            ${renderTeam('interactions')}
-        </section>
-
-        <section class="roster-team-panel">
-            <div class="roster-team-title-row"><div><div class="roster-team-title">ACTIONS</div><small>${rosterData.filter(r=>r.team==='actions' && r.active!==false).length} members allocated</small></div>${exportButton('actions','ACTIONS')}</div>
-            ${renderTeam('actions')}
-        </section>
-    </div>`;
+    return `<div class="roster-page"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Actions & Interactions Role Allocation</h3><small>Each staff member can be allocated to one side only.</small></div><button class="primary-button" onclick="openRosterExportModal()">Export to Discord</button></div><div class="allocation-grid">${unallocated.map(s=>`<div class="allocation-card"><div><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||'No Discord ID')}</small></div><div><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','actions')">ACTIONS</button><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','interactions')">INTERACTIONS</button></div></div>`).join('') || `<div class="ix-empty">Everyone is already allocated to a side.</div>`}</div></div><div class="roster-hierarchy"><section class="roster-team-panel"><div class="roster-team-title">ACTIONS</div>${renderTeam('actions')}</section><section class="roster-team-panel"><div class="roster-team-title">INTERACTIONS</div>${renderTeam('interactions')}</section></div></div>`;
 }
 
 function bindInteractionHandlers(){ }
@@ -3683,7 +3298,7 @@ async function allocateEntertainmentTeam(staffId, team) {
     if (existing) return alert(`This staff member is already allocated to ${existing.team}. Edit their roster entry to change it.`);
     const staffRow = staff.find(s => String(s.id) === String(staffId));
     const { error } = await supabaseClient.from('entertainment_roster').insert({
-        staff_id: staffId, display_name: staffRow?.name || '', team, hierarchy_level: 'member', kng_id: '', discord_id: staffRow?.discord_id || '', strikes: 0, mentor: false, notes: '', active: true, created_by: currentUser.id, updated_by: currentUser.id
+        staff_id: staffId, team, hierarchy_level: 'member', kng_id: '', discord_id: staffRow?.discord_id || '', strikes: 0, mentor: false, on_alopa: false, notes: '', active: true, created_by: currentUser.id, updated_by: currentUser.id
     });
     if (error) return alert(error.message);
     await loadRosterData(); render();
@@ -3713,37 +3328,55 @@ function openRosterEditModal(id) {
     const row = rosterData.find(r => r.id === id);
     if (!row) return;
     const s = row.staff || {};
-    showModal(`<div class="modal roster-edit-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Edit roster member</h2><small>Rank changes must use promote.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="rosterEditForm"><div class="form-grid"><div class="form-field"><label>Name</label><input name="name" value="${escapeAttribute(s.name || row.display_name || '')}" required></div><div class="form-field"><label>ID</label><input name="kng_id" value="${escapeAttribute(row.kng_id || '')}"></div><div class="form-field"><label>Discord ID</label><input name="discord_id" value="${escapeAttribute(s.discord_id || row.discord_id || '')}"></div><div class="form-field"><label>Team</label><select name="team"><option value="actions" ${row.team==='actions'?'selected':''}>Actions</option><option value="interactions" ${row.team==='interactions'?'selected':''}>Interactions</option></select></div><div class="form-field"><label>Level</label><select name="hierarchy_level">${['director','manager','adm','aux','ld','sub_ld','member'].map(v=>`<option value="${v}" ${row.hierarchy_level===v?'selected':''}>${escapeHtml(rosterLevelLabel(v,row.team))}</option>`).join('')}</select></div><div class="form-field"><label>Strikes</label><select name="strikes"><option>0</option><option ${row.strikes===1?'selected':''}>1</option><option ${row.strikes===2?'selected':''}>2</option><option ${row.strikes>=3?'selected':''}>3</option></select></div><div class="form-field"><label>Mentor</label><select name="mentor"><option value="false" ${!row.mentor?'selected':''}>N/A</option><option value="true" ${row.mentor?'selected':''}>Mentor</option></select></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows=4>${escapeHtml(row.notes || '')}</textarea></div></div><button class="primary-button">Save Changes</button></form></div>`);
+    showModal(`<div class="modal roster-edit-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Edit roster member</h2><small>Rank changes must use promote.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="rosterEditForm"><div class="form-grid"><div class="form-field"><label>Name</label><input name="name" value="${escapeAttribute(s.name || '')}" required></div><div class="form-field"><label>ID</label><input name="kng_id" value="${escapeAttribute(row.kng_id || '')}"></div><div class="form-field"><label>Discord ID</label><input name="discord_id" value="${escapeAttribute(s.discord_id || row.discord_id || '')}"></div><div class="form-field"><label>Team</label><select name="team"><option value="actions" ${row.team==='actions'?'selected':''}>Actions</option><option value="interactions" ${row.team==='interactions'?'selected':''}>Interactions</option></select></div><div class="form-field"><label>Level</label><select name="hierarchy_level">${['director','manager','adm','aux','ld','sub_ld','member'].map(v=>`<option value="${v}" ${row.hierarchy_level===v?'selected':''}>${escapeHtml(rosterLevelLabel(v,row.team))}</option>`).join('')}</select></div><div class="form-field"><label>Strikes</label><select name="strikes"><option>0</option><option ${row.strikes===1?'selected':''}>1</option><option ${row.strikes===2?'selected':''}>2</option><option ${row.strikes>=3?'selected':''}>3</option></select></div><div class="form-field"><label>Mentor</label><select name="mentor"><option value="false" ${!row.mentor?'selected':''}>N/A</option><option value="true" ${row.mentor?'selected':''}>Mentor</option></select></div><div class="form-field"><label>ALOPA</label><select name="on_alopa"><option value="false" ${!row.on_alopa?'selected':''}>No</option><option value="true" ${row.on_alopa?'selected':''}>Yes</option></select></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows=4>${escapeHtml(row.notes || '')}</textarea></div></div><button class="primary-button">Save Changes</button></form></div>`);
     document.getElementById('rosterEditForm')?.addEventListener('submit', async e => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
-        const newName = String(data.name || '').trim();
-        const newDiscordId = String(data.discord_id || '').trim();
-        const { error: staffError } = await supabaseClient.from('staff').update({ name: newName, discord_id: newDiscordId || null }).eq('id', row.staff_id);
+        const { error: staffError } = await supabaseClient.from('staff').update({ name: String(data.name).trim(), discord_id: String(data.discord_id || '').trim() || null }).eq('id', row.staff_id);
         if (staffError) return alert(staffError.message);
-        const { error } = await supabaseClient.from('entertainment_roster').update({ display_name: newName, team: data.team, hierarchy_level: data.hierarchy_level, kng_id: String(data.kng_id || '').trim(), discord_id: newDiscordId, strikes: Number(data.strikes || 0), mentor: data.mentor === 'true', notes: String(data.notes || '').trim(), updated_by: currentUser.id }).eq('id', id);
+        const { error } = await supabaseClient.from('entertainment_roster').update({ team: data.team, hierarchy_level: data.hierarchy_level, kng_id: String(data.kng_id || '').trim(), strikes: Number(data.strikes || 0), mentor: data.mentor === 'true', on_alopa: data.on_alopa === 'true', notes: String(data.notes || '').trim(), updated_by: currentUser.id }).eq('id', id);
         if (error) return alert(error.message);
         closeModal(); await loadStaff(); await loadRosterData(); render();
     });
 }
 
-function buildDiscordRosterText(team) {
-    const rows = rosterData.filter(r => r.team === team && r.active !== false).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||a.display_name||'').localeCompare(String(b.staff?.name||b.display_name||'')));
-    const groups = [['director','DIRECTOR'],['manager',`MANAGER OF ${team.toUpperCase()}`],['adm','ADM'],['aux','AUX'],['ld','LD'],['sub_ld','S.LD'],['member','MEMBER']];
-    const lines=[];
-    for (const [level,label] of groups) { const members=rows.filter(r=>r.hierarchy_level===level); if(!members.length) continue; lines.push(`   ${label}`); for(const member of members){ const discordId=String(member.staff?.discord_id||member.discord_id||'').trim(); if(discordId) lines.push(`╰› <@${discordId}>`); } lines.push(''); }
-    lines.push(`${rows.length} members total`); return lines.join('\n').trim();
-}
-async function copyRosterToDiscord(team) {
-    if(!canManage()) return; const text=buildDiscordRosterText(team);
-    try { await navigator.clipboard.writeText(text); alert(`${team.toUpperCase()} roster copied in Discord-ready format.`); }
-    catch(error){ showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">${escapeHtml(team.toUpperCase())}</span><h2>Discord Roster</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><textarea class="roster-export-text" readonly>${escapeHtml(text)}</textarea><div class="modal-footer"><button class="primary-button" onclick="navigator.clipboard.writeText(document.querySelector('.roster-export-text')?.value||'');closeModal();">Copy roster</button></div></div>`); }
-}
 function openRosterExportModal() {
-    if(!canManage()) return; const interactions=buildDiscordRosterText('interactions'); const actions=buildDiscordRosterText('actions');
-    showModal(`<div class="modal roster-export-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Discord Roster Exports</h2><small>Separate copy-ready outputs for each team.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><div class="roster-export-grid"><div><h3>INTERACTIONS</h3><textarea class="roster-export-text" readonly>${escapeHtml(interactions)}</textarea><button class="primary-button" onclick="copyRosterToDiscord('interactions')">Copy Interactions</button></div><div><h3>ACTIONS</h3><textarea class="roster-export-text" readonly>${escapeHtml(actions)}</textarea><button class="primary-button" onclick="copyRosterToDiscord('actions')">Copy Actions</button></div></div></div>`);
+    if (!canManage()) return;
+    const build = team => {
+        const rows = rosterData.filter(r => r.team === team).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level) || String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
+        const groups = [
+            ['adm', 'ADM'],
+            ['aux', 'AUX'],
+            ['ld', 'LD'],
+            ['sub_ld', 'S.LD'],
+            ['member', 'MEMBER']
+        ];
+        const lines = [];
+        for (const [level, label] of groups) {
+            lines.push(label);
+            const members = rows.filter(r => r.hierarchy_level === level);
+            if (members.length) {
+                members.forEach(r => {
+                    const discordId = String(r.staff?.discord_id || r.discord_id || '').trim();
+                    lines.push(discordId ? `╰› <@${discordId}>` : '╰› [NO DISCORD ID]');
+                });
+            } else {
+                lines.push('╰›');
+            }
+            lines.push('');
+        }
+        const total = rows.filter(r => ['adm', 'aux', 'ld', 'sub_ld', 'member'].includes(r.hierarchy_level)).length;
+        lines.push(`${total} members total`);
+        return lines.join('\n');
+    };
+    const output = `**ACTIONS**\n${build('actions') || 'No members allocated.'}\n\n**INTERACTIONS**\n${build('interactions') || 'No members allocated.'}`;
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Discord Output</span><h2>Hierarchy Output</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><textarea id="rosterExportText" class="roster-export" rows=20 readonly>${escapeHtml(output)}</textarea><div class="modal-footer"><button class="secondary-button" onclick="copyRosterOutput()">Copy Output</button><button class="primary-button" onclick="closeModal()">Done</button></div></div>`);
 }
-async function copyRosterOutput(){ const text=document.getElementById('rosterExportText')?.value||''; try{await navigator.clipboard.writeText(text);alert('Hierarchy output copied.');}catch(_){alert(text);} }
+
+async function copyRosterOutput() {
+    const text = document.getElementById('rosterExportText')?.value || '';
+    try { await navigator.clipboard.writeText(text); alert('Hierarchy output copied.'); } catch (_) { alert(text); }
+}
 
 async function saveDailyGoal() {
     if (!isDirector()) return alert('Only a Director can change the daily target.');
@@ -3752,12 +3385,7 @@ async function saveDailyGoal() {
     if (!Number.isFinite(n) || n < 1) return;
     const today = formatDate(new Date());
     const { error } = await supabaseClient.from('ix_daily_goals').upsert({ user_id: currentUser.id, goal_date: today, target_points: Math.floor(n), points_earned: 0 }, { onConflict: 'user_id,goal_date' });
-    if (error) {
-        if(String(error.message||'').toLowerCase().includes('schema cache') || String(error.message||'').toLowerCase().includes('does not exist')) {
-            return showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Daily Goals</span><h2>Database setup required</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">The Daily Goals table is not installed yet. Run <b>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</b> in Supabase, then refresh the site.</p><div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div></div>`);
-        }
-        return alert(error.message);
-    }
+    if (error) return alert(error.message);
     await loadInteractionData(); render();
 }
 
@@ -3773,9 +3401,6 @@ window.openRosterEditModal=openRosterEditModal;
 window.deleteRosterMember=deleteRosterMember;
 window.openRosterExportModal=openRosterExportModal;
 window.copyRosterOutput=copyRosterOutput;
-window.copyRosterToDiscord=copyRosterToDiscord;
-window.openPostApprovalAllocationModal=openPostApprovalAllocationModal;
-window.finishPostApprovalAllocation=finishPostApprovalAllocation;
 window.saveDailyGoal=saveDailyGoal;
 
 /* =========================================================
