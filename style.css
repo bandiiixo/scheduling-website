@@ -2063,155 +2063,27 @@ body {
 .public-feedback-list article{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05)}
 .public-feedback-list article p{margin:4px 0 0;white-space:pre-wrap;line-height:1.45}
 
-/* Hall of Fame colour editor polish */
-.hof-colour-panel{display:grid;gap:10px;padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:12px;background:rgba(255,255,255,.018)}
-.hof-colour-top{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:8px;align-items:center}
-.hof-colour-swatch{width:42px;height:32px;border-radius:7px;border:1px solid rgba(255,255,255,.18);cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
-.hof-hex-input{min-width:0!important;background:#090c15!important;border:1px solid rgba(255,255,255,.08)!important;color:#fff!important;border-radius:7px!important;padding:8px 9px!important;font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-size:12px!important}
-.hof-rgb{color:#777f94;font-size:10px;white-space:nowrap}
-.hof-range-label{display:grid!important;grid-template-columns:58px 1fr 38px;align-items:center;gap:8px!important}
-.hof-range-label input[type=range]{width:100%;padding:0!important}
-.hof-range-label small{color:#777f94;text-align:right}
-@media(max-width:600px){.hof-colour-top{grid-template-columns:42px 1fr}.hof-rgb{grid-column:2;justify-self:start}.hof-range-label{grid-template-columns:52px 1fr 34px}}
 
-/* =========================================================
-   HOST AN EVENT PLANNER
-   ========================================================= */
-.host-event-toolbar{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:18px;padding:22px;border:1px solid rgba(255,45,91,.28);border-radius:18px;background:rgba(9,14,25,.86);box-shadow:0 16px 40px rgba(0,0,0,.18)}
-.host-eyebrow{display:block;font-size:10px;letter-spacing:.18em;color:#ff6f91;font-weight:800;margin-bottom:5px}
-.host-event-toolbar h2{margin:0 0 6px;font-size:25px}.host-event-toolbar p{margin:0;color:#8e9bb2;max-width:760px}
-.host-toolbar-buttons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-.host-control-panel{margin:0 0 16px;padding:18px;border:1px solid rgba(255,45,91,.22);border-radius:16px;background:rgba(8,12,22,.92)}
-.host-control-panel[hidden]{display:none}
-.host-control-head,.host-section-head{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:14px}.host-control-head b,.host-section-head h3{display:block;margin:0}.host-control-head small,.host-section-head small{display:block;color:#8290a9;margin-top:4px}
-.host-form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.host-form-grid input,.host-form-grid select{min-width:0}.host-form-grid .primary-button{align-self:end}.host-check{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 12px;border:1px solid #283247;border-radius:10px;color:#b6c0d2;font-size:12px}.host-check input{width:auto}
-.host-randomiser-card{display:flex;justify-content:space-between;gap:18px;align-items:center;padding:16px 18px;margin-bottom:16px;border:1px solid #273145;border-radius:16px;background:rgba(10,15,27,.9)}.host-randomiser-card b{display:block}.host-randomiser-card small{display:block;color:#7f8da5;margin-top:4px}.host-randomiser-controls{display:flex;gap:8px;flex-wrap:wrap}.host-randomiser-controls input,.host-randomiser-controls select{min-width:145px}
-.host-schedule-card{padding:18px;border:1px solid #263146;border-radius:18px;background:rgba(8,13,24,.9)}.host-slot-list{display:grid;gap:8px}.host-slot{display:grid;grid-template-columns:92px 1fr auto;align-items:center;gap:14px;padding:12px 14px;border:1px solid #273247;border-radius:12px;background:#101725}.host-slot-locked{border-color:rgba(255,45,91,.4);background:linear-gradient(90deg,rgba(255,45,91,.08),rgba(16,23,37,.96))}.host-slot-time{font-weight:800;color:#ff7895}.host-slot-time small{display:block;color:#77869f;font-weight:500;margin-top:2px}.host-slot-main b{display:block}.host-slot-main small{display:block;color:#8491a8;margin-top:3px}.host-slot-actions{display:flex;align-items:center;gap:8px}.host-lock{font-size:13px}
-.host-rules-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.host-rules-grid>div{padding:15px;border:1px solid #252f42;border-radius:14px;background:rgba(8,13,23,.84)}.host-rules-grid b{display:block}.host-rules-grid small{display:block;color:#7f8ca2;margin-top:5px;line-height:1.45}
-.prize-win-page-form label{display:block;font-size:11px;color:#9aa7bc;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.prize-win-page-form label input,.prize-win-page-form label select{margin-top:6px}.prize-command-actions{display:flex;gap:8px;align-items:center}.prize-command-actions .primary-button{flex:1}.prize-done{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:11px;color:#aeb9ca}.prize-done input{accent-color:#ff2d5b}.prize-win-complete td{opacity:.62}.prize-win-complete .command-code{text-decoration:line-through;text-decoration-color:rgba(255,45,91,.7)}
-@media (max-width:900px){.host-event-toolbar,.host-randomiser-card{flex-direction:column}.host-toolbar-buttons,.host-randomiser-controls{width:100%;justify-content:flex-start}.host-form-grid,.host-rules-grid{grid-template-columns:1fr 1fr}.host-slot{grid-template-columns:70px 1fr}.host-slot-actions{grid-column:2;justify-content:flex-start}.prize-page-grid{grid-template-columns:1fr!important}}
-@media (max-width:600px){.host-form-grid,.host-rules-grid{grid-template-columns:1fr}.host-event-toolbar h2{font-size:21px}}
-.host-date-label{display:flex;flex-direction:column;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#8d9ab0;font-weight:700}.host-date-label input{margin-top:0}
-
-/* KNG profile + event claim controls */
-.sidebar-display-name{font-weight:800;color:#f2f5fb!important;font-size:12px!important;margin-top:5px}
-.profile-button{margin-top:9px;width:100%;justify-content:center}
-.host-unclaim-btn{border-color:rgba(255,255,255,.14)!important;color:#d7deea!important;background:rgba(255,255,255,.045)!important}
-.host-unclaim-btn:hover{border-color:rgba(255,45,91,.55)!important;color:#fff!important;background:rgba(255,45,91,.12)!important}
-.host-unclaim-locked{font-size:10px;color:#69758b;white-space:nowrap;padding:7px 8px;border:1px solid rgba(255,255,255,.07);border-radius:8px}
-
-
-/* =========================================================
-   KNG PATCH: clean month view, crown asset, rolling dashboard
-   ========================================================= */
-.schedule-logo.crown-logo {
-    padding: 0;
-    background: #c90035;
-    border-color: rgba(255,255,255,.12);
-}
-.schedule-logo.crown-logo img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-}
-
-/* Month view is intentionally sparse. Entertainment slots live in Week/Day/Agenda. */
-.month-calendar .month-events {
-    gap: 4px;
-}
-.month-calendar .calendar-event {
-    font-size: 10px;
-}
-.month-calendar .calendar-event .event-description,
-.month-calendar .calendar-event .event-attendance,
-.month-calendar .calendar-event .event-winner,
-.month-calendar .calendar-event .event-status {
-    display: none;
-}
-
-.ix-panel-note {
-    color: #7f879b;
-    font-size: 10px;
-    letter-spacing: .04em;
-}
-.ix-schedule-list > div {
-    grid-template-columns: 88px minmax(0,1fr) auto;
-    align-items: center;
-}
-.ix-schedule-list > div b {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.ix-schedule-list > div small {
-    white-space: nowrap;
-}
-
-/* Roster controls: make role removal obvious and keep the allocation tools compact. */
-.roster-actions .mini-btn.danger {
-    border-color: rgba(255,75,105,.42);
-    background: rgba(255,45,91,.11);
-}
-.roster-actions .mini-btn.danger:hover {
-    background: rgba(255,45,91,.22);
-}
-
-
-/* KNG PATCH: Actions / Interactions roster allocation + Discord exports. Appended to the preserved master build. */
-.roster-team-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 10px;padding:14px 16px;border:1px solid rgba(255,45,91,.22);border-radius:14px;background:rgba(10,14,25,.78)}
-.roster-team-title-row small{display:block;margin-top:4px;color:#8d9bb7}.roster-team-panel{margin-top:20px}.roster-team-panel>.roster-group{margin-top:10px}
-.allocation-choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}.allocation-choice{appearance:none;border:1px solid rgba(255,45,91,.32);border-radius:14px;background:linear-gradient(145deg,#111827,#0a0f1b);color:#fff;padding:22px 16px;text-align:left;cursor:pointer;transition:.18s ease;box-shadow:0 8px 22px rgba(0,0,0,.18)}.allocation-choice:hover{transform:translateY(-2px);border-color:#ff2d5b;box-shadow:0 12px 28px rgba(255,45,91,.18)}.allocation-choice strong{display:block;font-size:15px;letter-spacing:.08em;color:#fff}.allocation-choice small{display:block;margin-top:6px;color:#93a1bb}
-.roster-export-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.roster-export-grid>div{display:flex;flex-direction:column;gap:10px;min-width:0}.roster-export-grid h3{margin:0;font-size:13px;letter-spacing:.1em;color:#ff5a7d}.roster-export-text{width:100%;min-height:250px;box-sizing:border-box;resize:vertical;border:1px solid rgba(255,45,91,.28);border-radius:12px;background:#070b13;color:#e9edf7;padding:14px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;outline:none}.roster-export-text:focus{border-color:#ff2d5b;box-shadow:0 0 0 3px rgba(255,45,91,.1)}.roster-export-modal{max-width:980px}.roster-allocation-panel{margin-bottom:18px}
-@media (max-width:760px){.allocation-choice-grid,.roster-export-grid{grid-template-columns:1fr}.roster-team-title-row{align-items:flex-start;flex-direction:column}.roster-team-title-row .primary-button{width:100%}}
-
-/* =========================================================
-   FINAL NAV / PERSONAL DASHBOARD / PUBLIC F3 POLISH
-   ========================================================= */
-.public-f3-button{border-color:rgba(255,61,96,.34)!important;color:#ffd8df!important}
-.public-f3-main{padding-top:28px}
-.public-f3-wrap{max-width:1120px;margin:0 auto;padding:0 4px 40px}
-.public-f3-hero{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:28px 30px;margin-bottom:18px;border:1px solid rgba(255,47,88,.28);border-radius:18px;background:linear-gradient(135deg,rgba(17,22,34,.94),rgba(8,10,18,.9));box-shadow:0 18px 50px rgba(0,0,0,.24),inset 0 0 30px rgba(255,30,70,.025)}
-.public-f3-eyebrow{display:block;color:#ff5875;font-size:10px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;margin-bottom:8px}
-.public-f3-hero h2{margin:0;font-size:28px;line-height:1.1;color:#fff}
-.public-f3-hero p{margin:9px 0 0;color:#8f9bb2;font-size:13px}
-.public-f3-count{min-width:130px;padding:15px 18px;border-radius:14px;text-align:center;background:rgba(255,31,73,.08);border:1px solid rgba(255,31,73,.2)}
-.public-f3-count strong{display:block;color:#fff;font-size:28px;line-height:1}
-.public-f3-count span{display:block;margin-top:5px;color:#a9b4c8;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
-.public-f3-list{display:flex;flex-direction:column;gap:8px}
-.public-f3-event{display:grid;grid-template-columns:105px 1fr;align-items:center;gap:18px;padding:15px 18px;border:1px solid rgba(95,110,139,.25);border-radius:14px;background:rgba(15,21,33,.9);transition:.18s ease}
-.public-f3-event:hover{transform:translateY(-1px);border-color:rgba(255,54,92,.38)}
-.public-f3-event.is-passed{opacity:.48}
-.public-f3-event.is-next{border-color:rgba(255,44,86,.7);box-shadow:0 0 24px rgba(255,31,73,.1);background:linear-gradient(90deg,rgba(70,14,29,.5),rgba(15,21,33,.92))}
-.public-f3-time strong{display:block;color:#ff4d6d;font-size:19px;line-height:1}
-.public-f3-time span{display:block;color:#75839c;font-size:12px;margin-top:5px}
-.public-f3-event-main{min-width:0}
-.public-f3-event-title-row{display:flex;align-items:center;gap:10px;min-width:0}
-.public-f3-event-title-row h3{margin:0;color:#fff;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.public-f3-next-badge{padding:4px 7px;border-radius:999px;background:#ff2450;color:#fff;font-size:9px;font-weight:900;letter-spacing:.08em;flex:none}
-.public-f3-type{display:inline-block;margin-top:6px;color:#8997ae;font-size:11px}
-.public-f3-location{display:inline-block;margin-left:12px;color:#8997ae;font-size:11px}
-.public-f3-empty{margin-top:4px}
-.personal-dashboard{display:flex;flex-direction:column;gap:18px}
-.personal-top-grid{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(0,1.6fr);gap:18px;align-items:stretch}
-.personal-goal-card{width:auto;min-height:360px;display:flex;flex-direction:column;justify-content:center;align-items:center}
-.personal-stats-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.personal-stats-grid .ix-stat{min-height:145px}
-.personal-dashboard-grid{align-items:stretch}
-.personal-management-card{margin-top:0}
-.personal-points-form{display:grid;grid-template-columns:1.3fr .7fr 1.5fr auto;gap:10px;align-items:center}
-.personal-points-form input,.personal-points-form select{min-width:0}
-
-@media(max-width:900px){
-  .personal-top-grid{grid-template-columns:1fr}
-  .personal-points-form{grid-template-columns:1fr 1fr}
-}
-@media(max-width:700px){
-  .public-f3-hero{padding:20px;align-items:flex-start;flex-direction:column}
-  .public-f3-count{width:100%;box-sizing:border-box}
-  .public-f3-event{grid-template-columns:72px 1fr;gap:12px;padding:13px}
-  .public-f3-event-title-row h3{font-size:14px}
-  .personal-stats-grid{grid-template-columns:1fr 1fr}
-  .personal-points-form{grid-template-columns:1fr}
-}
+/* KNG Entertainment final layout patch */
+.schedule-logo.crown-logo img{width:100%;height:100%;object-fit:cover;display:block;}
+.month-event-summary{display:block;width:100%;margin-top:5px;padding:5px 7px;border:1px solid rgba(255,45,91,.18);border-radius:7px;background:rgba(255,45,91,.08);color:#ff7b9a;font-size:10px;font-weight:800;cursor:pointer;}
+.month-event-summary:hover{background:rgba(255,45,91,.14);}
+.host-event-page{display:flex;flex-direction:column;gap:16px;}
+.host-page-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+.host-schedule-list{display:flex;flex-direction:column;gap:8px;}
+.host-event-row{display:grid;grid-template-columns:80px minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px;border:1px solid rgba(255,255,255,.07);border-radius:12px;background:rgba(255,255,255,.025);}
+.host-time{display:flex;flex-direction:column;color:#ff5578;}
+.host-time small,.host-event-main small{display:block;color:#7f879b;margin-top:3px;}
+.host-event-main{min-width:0;}
+.host-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end;}
+.roster-team-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.roster-team-title span{font-size:11px;color:#8f98aa;font-weight:600;margin-left:auto;}
+.roster-team-title .small{min-height:30px;padding:0 10px;}
+.allocation-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;}
+.allocation-card{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px;border:1px solid rgba(255,45,91,.15);border-radius:12px;background:rgba(255,255,255,.025);}
+.allocation-card>div:first-child{display:flex;flex-direction:column;min-width:0;}
+.allocation-card small{display:block;color:#7f879b;margin-top:4px;}
+.roster-team-panel{margin-top:16px;}
+.personal-dashboard{display:flex;flex-direction:column;gap:16px;}
+.public-f3-page{max-width:900px;margin:0 auto;}
+@media(max-width:900px){.host-event-row{grid-template-columns:1fr;}.host-page-actions{justify-content:flex-start;}.roster-team-title span{margin-left:0;}}

@@ -1,47 +1,48 @@
-KNG ENTERTAINMENT - HOST AN EVENT FULL PACK
+KNG ENTERTAINMENT - FINAL INTEGRATED BUILD
 
-This is the full KNG Entertainment app pack. Replace the matching project files with the files in this ZIP.
+This pack is the current full KNG Entertainment build. It keeps the existing schedule/event/prize/Hall of Fame functionality and applies the latest requested fixes without adding Hungry Pool back into the UI or migration.
 
-IMPORTANT DATABASE STEP
-Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql in the Supabase SQL Editor before testing the new Host an Event or Prize features.
+SIDEBAR ORDER
+1. Schedule
+2. Event Suggestions
+3. Host an Event
+4. Prizes & Commands
+5. Hall of Fame
+6. Personal Dashboard
+7. Staff Roster
+8. Command Dashboard
+9. Actions & Interactions
+10. Access Requests
+11. Security
 
-HOST AN EVENT
-- Hungry Pool is replaced by Host an Event.
-- Randomise Empty Slots fills only empty slots.
-- Random events never repeat directly beside themselves.
-- Club 77 and Vanilla are manual-only choices and are never selected by the randomiser.
-- Planned events can repeat daily, weekly or biweekly and protect their slots from the randomiser.
-- Every slot remains manually editable after randomisation.
-- Signed-in KNG staff get a Claim button on each slot.
-- Claim records the signed-in Discord account's Discord ID and staff name on that event.
-- A claimed slot cannot be claimed by another person.
+LATEST FIXES
+- Monthly calendar no longer dumps every F3/event into each date cell. Public events are shown as a compact count; meetings/staff events remain visible.
+- Command Dashboard shows upcoming events from the current time, not events whose times have already passed.
+- Command Dashboard shows Most Popular Events based on completed attendance.
+- Personal Dashboard contains the Daily Goal and operational overview without Points, Hungry Pool or Reductions panels.
+- Staff performance ranking is based on hosted events, activity and points, and is shown as supporting dashboard content rather than a sidebar tab.
+- Host an Event page restored with today's host schedule, claim buttons, randomise-empty-slots, planned-event and add-event controls.
+- Event hosting records the actual Discord-linked staff name/ID.
+- Approved staff automatically receive a staff record and a pending Actions/Interactions roster entry.
+- Staff Roster has explicit Interactions and Actions allocation, removal back to unallocated, editing, promotion and separate Discord-copy buttons.
+- Roster export format uses <@DISCORD_ID> mentions and the team member total.
+- ALOPA is removed from the roster UI/database migration.
+- Discord display-name edits update the actual staff roster record.
+- Public F3 is a public-only view accessible from the header, not a sidebar management tab.
+- KNG crown asset is used in the header.
+- Prize Commands retains Prize Win and command copying, plus Name Change and Character Reset utility items.
+- No Hungry Pool tables, RPCs or policies are included in the final migration.
+- SQL includes the original KNG base schema so the migration can cover missing base tables as well as Entertainment additions.
 
-PRIZES & COMMANDS
-- Prize Win form stays directly on the page.
-- Dirty Money, Dollars and Event VIP are built in.
-- Amount and item code auto-fill from the selected prize.
-- Reason is entered manually.
-- Command is generated as !additem ID CODE AMOUNT Reason.
-- Copy command is available before recording the win.
-- Prize wins can be marked done.
+DATABASE
+Run ONLY:
+KNG-ENTERTAINMENT-COMPLETE-FINAL-MIGRATION.sql
 
-Keep index.html, supabase.js, app.js and style.css together. Do not delete the existing HOF/background assets unless you have a separate reason to remove them.
+Do not run the older KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql alongside this file.
 
-
-CLAIM / DISPLAY NAME UPDATE - 30 OCT 2026
-- Staff can set their own KNG Display Name from the sidebar.
-- Claims show the display name instead of the Discord ID.
-- Discord IDs remain stored internally for identity/security.
-- Staff can unclaim their own event until one hour before its Europe/London start time.
-- Within the one-hour cutoff, the unclaim control is locked.
-- Run KNG-DISPLAY-NAME-UNCLAIM-PATCH.sql if the database already has the previous host-claim migration.
-- The complete migration in this pack also contains the same fixes.
-
-UI / ROSTER PATCH 30 OCT 2026
-- Monthly calendar now hides the high-volume entertainment event cards to stop the month view becoming an unreadable wall of boxes. Meetings remain visible.
-- Week / Day / Agenda continue to show the full entertainment schedule.
-- Command Dashboard now shows the next 8 upcoming events from the current time, rolling into later dates instead of showing already-passed events.
-- Replaced the text crown in the header with the supplied KNG crown asset: kngcroiwn.png.
-- Staff Roster keeps Actions / Interactions allocation and explicit REMOVE ROLE controls so staff can be removed and reallocated.
-- Discord export remains copy/paste-ready and uses <@DISCORDID> mentions.
-- Existing Host an Event, randomiser, planned-slot protection, claim/unclaim, display names, prizes/commands, security and all other integrated functionality are preserved.
+DEPLOYMENT
+1. Replace the repo files with this pack.
+2. Commit/push to GitHub.
+3. Let Render redeploy.
+4. Run the FINAL migration once in Supabase SQL Editor.
+5. Hard refresh the site with Ctrl+F5.
