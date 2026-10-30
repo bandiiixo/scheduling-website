@@ -2719,10 +2719,10 @@ function renderOpsPrizes() {
             <button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button>
         </div>
         <div class="ops-grid-two">
-            ${canManage() ? opsCard("Prize catalogue", `<form id="prizeForm" class="ops-form"><input name="label" maxlength="100" placeholder="Prize name" required><input name="code" maxlength="80" placeholder="Item code" required><input name="amount" type="number" min="1" required placeholder="Amount"><input name="command_template" maxlength="300" placeholder="Command template, e.g. /giveitem {discord_id} {code} {amount}" value="/giveitem {discord_id} {code} {amount}"><button class="primary-button">Add prize</button><small>Placeholders: {discord_id}, {name}, {code}, {amount}</small></form>`) : ""}
+            ${canManage() ? opsCard("Prize catalogue", `<form id="prizeForm" class="ops-form"><input name="label" maxlength="100" placeholder="Prize name" required><input name="code" maxlength="80" placeholder="Item code" required><input name="amount" type="number" min="1" required placeholder="Amount"><input name="command_template" maxlength="300" placeholder="Command template" value="!additem {discord_id} {code} {amount} Event Winner"><button class="primary-button">Add prize</button><small>Prize wins use: <b>!additem ID code amount Event Winner</b></small></form>`) : ""}
             ${opsCard("Prize catalogue", ops.prizes.length ? `<div class="prize-grid">${ops.prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0)}</strong><small>${escapeHtml(p.command_template || "")}</small></div>`).join("")}</div>` : `<div class="ops-empty">No prizes configured yet.</div>`)}
         </div>
-        <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
+        <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th>Given</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr class="${w.completed ? 'prize-win-complete' : ''}"><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><label class="prize-done"><input type="checkbox" class="prize-done-checkbox" data-id="${w.id}" ${w.completed ? 'checked' : ''}><span>Done</span></label></td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
 }
 
 function renderOpsAccess() {
@@ -2760,6 +2760,7 @@ function bindOpsHandlers() {
     document.getElementById("blockForm")?.addEventListener("submit", submitBlock);
     document.getElementById("crashoutSettingsForm")?.addEventListener("submit", submitCrashoutSettings);
     document.querySelectorAll(".copy-command").forEach(btn => btn.addEventListener("click", () => copyCommand(btn.dataset.command, btn)));
+    document.querySelectorAll(".prize-done-checkbox").forEach(btn => btn.addEventListener("change", () => setPrizeWinDone(btn.dataset.id, btn.checked)));
     document.querySelectorAll(".unblock-account").forEach(btn => btn.addEventListener("click", () => unblockAccount(btn.dataset.email)));
     document.querySelectorAll(".ops-delete-hungry").forEach(btn => btn.addEventListener("click", () => deleteHungry(btn.dataset.id)));
     document.querySelectorAll(".ops-claim-hungry").forEach(btn => btn.addEventListener("click", () => claimHungry(btn.dataset.id)));
@@ -2903,14 +2904,14 @@ async function unblockAccount(email) {
 async function openPrizeWinModal() {
     if (!canManage()) return showLoginMessage();
     const prizes = ops.prizes || [];
-    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Record Prize Win</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form"><input name="recipient_name" maxlength="100" placeholder="Winner name" required><input name="discord_id" maxlength="50" placeholder="Discord / in-game ID" required><select name="prize_id" required><option value="">Select prize</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)} · ${escapeHtml(p.code)} · ${Number(p.amount||0)}</option>`).join("")}</select><div class="command-preview" id="commandPreview">Select a prize to generate the command.</div><button class="primary-button">Record Win &amp; Generate Command</button></form></div>`);
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Record Prize Win</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form"><input name="recipient_name" maxlength="100" placeholder="Winner / prize name" required><input name="discord_id" maxlength="50" placeholder="In-game ID" required><select name="prize_id" required><option value="">Select prize</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select><input name="prize_code" maxlength="80" placeholder="Prize code" readonly><input name="prize_amount" type="number" min="1" placeholder="Amount" readonly><input name="reason" value="Event Winner" readonly><div class="command-preview" id="commandPreview">Choose a prize and enter the winner's ID.</div><button class="primary-button">Record Win &amp; Generate Command</button></form></div>`);
     document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
     document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
     document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
 }
 
 function buildPrizeCommand(prize, name, discordId) {
-    const template = prize?.command_template || "/giveitem {discord_id} {code} {amount}";
+    const template = prize?.command_template || "!additem {discord_id} {code} {amount} Event Winner";
     return template.replaceAll("{discord_id}", discordId).replaceAll("{name}", name).replaceAll("{code}", prize?.code || "").replaceAll("{amount}", String(prize?.amount || 0));
 }
 
@@ -2918,9 +2919,11 @@ function updatePrizeCommandPreview() {
     const f = document.getElementById("prizeWinForm");
     if (!f) return;
     const prize = ops.prizes.find(p=>p.id === f.prize_id.value);
+    if (f.prize_code) f.prize_code.value = prize?.code || "";
+    if (f.prize_amount) f.prize_amount.value = prize ? Number(prize.amount || 0) : "";
     const command = buildPrizeCommand(prize, f.recipient_name.value.trim(), f.discord_id.value.trim());
     const box = document.getElementById("commandPreview");
-    if (box) box.textContent = command;
+    if (box) box.textContent = prize ? command : "Choose a prize and enter the winner's ID.";
 }
 
 async function submitPrizeWin(e) {
@@ -2933,7 +2936,7 @@ async function submitPrizeWin(e) {
     const prize = ops.prizes.find(p=>p.id === prize_id);
     if (!prize) return alert("Select a prize.");
     const command = buildPrizeCommand(prize, recipient_name, discord_id);
-    const payload = { prize_id, recipient_name, discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id };
+    const payload = { prize_id, recipient_name, discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id, completed: false };
     const { error } = await supabaseClient.from("ops_prize_wins").insert(payload);
     if (error) return alert(error.message);
     await writeAudit("prize.won", payload);
@@ -2943,6 +2946,21 @@ async function submitPrizeWin(e) {
 async function copyCommand(command, button) {
     try { await navigator.clipboard.writeText(command); button.textContent = "Copied"; setTimeout(()=>button.textContent="Copy",1200); }
     catch (_) { alert(command); }
+}
+
+async function setPrizeWinDone(id, completed) {
+    if (!canManage()) return;
+    const payload = { completed: !!completed, completed_at: completed ? new Date().toISOString() : null, completed_by: completed ? currentUser.id : null };
+    const { error } = await supabaseClient.from("ops_prize_wins").update(payload).eq("id", id);
+    if (error) {
+        alert(error.message);
+        await loadOpsData();
+        render();
+        return;
+    }
+    await writeAudit(completed ? "prize.command_completed" : "prize.command_reopened", { id });
+    await loadOpsData();
+    render();
 }
 
 async function writeAudit(action, details={}) {

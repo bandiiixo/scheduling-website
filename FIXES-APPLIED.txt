@@ -31,3 +31,11 @@ KNG ENTERTAINMENT FULL FIX PACK - FIXES APPLIED
 
 8. Existing features were retained:
    Schedule calendar, Discord login, access hierarchy, recurring events, Party/Event/Battle Royale/Community Meeting presets, event completion, attendance/winners, leaderboards, Actions/Interactions roster, Tracker, Hungry Pool, Reductions, Helpers, Points, Prize Win, Commands/Copy, Security, Crashout protection, access requests, feedback/suggestions and Hall of Fame.
+
+Prize system update (2026-10-30):
+- Prize Win now uses a prize dropdown.
+- Selecting a prize auto-fills its item code and amount.
+- Prize commands now use !additem {ID} {code} {amount} Event Winner.
+- Default prizes are Dirty Money (dinheirosujo, 500000), Dollars (dollars, 500000), and Event VIP (vipevento1, 1).
+- Prize win records have a persistent Done checkbox for when the command has been copied, pasted, and given in Discord.
+- Added completed/completed_at/completed_by fields to ops_prize_wins migration.
