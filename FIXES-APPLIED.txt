@@ -1,33 +1,41 @@
-KNG ENTERTAINMENT - FULL PRESERVED UPDATE
+KNG ENTERTAINMENT FULL FIX PACK - FIXES APPLIED
 
-This pack is based on the latest FULL Host Event / Claim / Display Name build.
-It preserves the existing features, including:
-- Host an Event randomiser
-- Planned/protected event slots
-- Club 77 + Vanilla manual-only events
-- Manual event editing after randomisation
-- Staff event Claim / Unclaim with one-hour cutoff
-- KNG display names for claims
-- Prize Win / Prize Commands system
-- Prize catalogue and command generation
-- Prize completion/done tracking
-- Staff Roster and display-name profile editing
-- Name Change / existing integrated operations functionality
-- Actions & Interactions
-- Security / timeout / kick-off tools
-- Access Requests and permissions
-- Hall of Fame, Daily Goals, Leaderboard and other existing modules
+1. Staff-only event visibility now follows the requested hierarchy:
+   MEMBER+ can see staff-only events/meetings; PUBLIC cannot.
+   This is enforced in both the UI and Supabase RLS, not just hidden in the browser.
 
-NEW DASHBOARD CHANGES:
-1. Removed the standalone Points tab from the sidebar.
-2. Moved Points Leaderboard into Operations Dashboard.
-3. Moved Adjust Points into Operations Dashboard and kept it ADM+ only.
-4. Operations Dashboard now shows the next 8 upcoming events from the current browser time.
-5. The dashboard no longer starts the list at 01:00 when it is already 05:00.
-6. The rolling list carries into tomorrow/later dates when required.
-7. The full Schedule / Host an Event page is unchanged.
+2. Staff meeting permissions fixed:
+   Only MANAGER+ can create, edit or delete staff meetings.
+   ADM can still manage normal Entertainment events.
 
-DATABASE:
-No new SQL migration is required for the dashboard changes.
-The included SQL files are preserved from the working full pack for reference.
-Do not rerun migrations just for the dashboard changes.
+3. Recurring event validation fixed:
+   Repeat-until dates cannot be earlier than the first event/meeting date.
+
+4. Hall of Fame fixed:
+   Missing-table errors now show an in-page setup message instead of the old browser schema-cache alert.
+   Winner photo position and zoom are saved and restored.
+   Frame mode, colour, hue and intensity are stored.
+   Added hex, RGB, hue and intensity controls.
+
+5. Daily Goals fixed:
+   Missing-table errors now show an in-page setup message instead of a browser alert.
+
+6. Kick-off flow fixed:
+   Kick-off reason defaults to Inactivity and blank reasons fall back to Inactivity.
+
+7. Operations migration fixed:
+   Adds/repairs all required operations tables and policies.
+   Adds the missing Hall of Fame/Daily Goals schema.
+   Adds persistent Hall of Fame photo positioning.
+   Restricts staff-only event reads at database level.
+
+8. Existing features were retained:
+   Schedule calendar, Discord login, access hierarchy, recurring events, Party/Event/Battle Royale/Community Meeting presets, event completion, attendance/winners, leaderboards, Actions/Interactions roster, Tracker, Hungry Pool, Reductions, Helpers, Points, Prize Win, Commands/Copy, Security, Crashout protection, access requests, feedback/suggestions and Hall of Fame.
+
+DASHBOARD UPDATE - 2026-10-30
+- Removed the standalone Points tab from the sidebar.
+- Moved the Points leaderboard and Adjust Points form into Operations Dashboard.
+- Adjust Points is only rendered for ADM and above.
+- Operations Dashboard now shows the next 8 upcoming events from the current browser time instead of the first events of the day.
+- The upcoming list includes events from later dates when needed and refreshes with the existing 60-second app refresh.
+- Existing full Schedule page and event data are unchanged.
