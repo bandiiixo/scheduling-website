@@ -147,14 +147,15 @@ drop policy if exists "Managers can delete events" on public.events;
 drop policy if exists events_public_read on public.events;
 drop policy if exists events_staff_write on public.events;
 
-create policy events_public_read on public.events for select to anon, authenticated using (true);
+create policy events_public_read on public.events for select to anon, authenticated
+  using (coalesce(visibility, 'public') <> 'staff' or public.kng_schedule_access_rank() >= 1);
 create policy events_staff_write on public.events for insert to authenticated
   with check (public.kng_schedule_can_manage() and (coalesce(is_meeting,false) = false or public.kng_schedule_is_admin()));
 create policy events_staff_update on public.events for update to authenticated
   using (public.kng_schedule_can_manage())
   with check (public.kng_schedule_can_manage() and (coalesce(is_meeting,false) = false or public.kng_schedule_is_admin()));
 create policy events_staff_delete on public.events for delete to authenticated
-  using (public.kng_schedule_can_manage());
+  using (public.kng_schedule_can_manage() and (coalesce(is_meeting,false) = false or public.kng_schedule_is_admin()));
 
 -- =========================================================
 -- OPERATIONS TABLES
@@ -374,7 +375,7 @@ begin
   update public.staff_access_requests set status='rejected',review_note=coalesce(nullif(trim(p_reason),''),'Access not approved'),reviewed_by=auth.uid(),reviewed_at=now() where id=p_request_id;
   if not found then raise exception 'Access request not found.'; end if; return true;
 end; $$;
-grant execute on function public.kng_schedule_access_rank() to authenticated;
+grant execute on function public.kng_schedule_access_rank() to anon, authenticated;
 grant execute on function public.request_staff_access(text) to authenticated;
 grant execute on function public.approve_staff_access_request(uuid,text) to authenticated;
 grant execute on function public.reject_staff_access_request(uuid,text) to authenticated;
@@ -416,12 +417,28 @@ create policy event_suggestions_staff_update on public.event_suggestions for upd
 create table if not exists public.ix_hall_of_fame (
   id uuid primary key default gen_random_uuid(), winner_name text not null, image_url text, frame text not null default 'Original',
   frame_colour text not null default '#22D3EE', frame_mode text not null default 'none', hue integer not null default 180,
-  intensity integer not null default 100 check (intensity between 0 and 100), created_by uuid references auth.users(id) on delete set null, created_at timestamptz not null default now()
+  intensity integer not null default 100 check (intensity between 0 and 100),
+  photo_x numeric not null default 0, photo_y numeric not null default 0, photo_scale numeric not null default 1 check (photo_scale > 0 and photo_scale <= 5),
+  created_by uuid references auth.users(id) on delete set null, created_at timestamptz not null default now()
 );
+alter table public.ix_hall_of_fame add column if not exists photo_x numeric default 0;
+alter table public.ix_hall_of_fame add column if not exists photo_y numeric default 0;
+alter table public.ix_hall_of_fame add column if not exists photo_scale numeric default 1;
 create table if not exists public.ix_daily_goals (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
   goal_date date not null, target_points integer not null default 8 check (target_points>0), points_earned integer not null default 0 check(points_earned>=0), created_at timestamptz not null default now(), unique(user_id,goal_date)
 );
+update public.ix_hall_of_fame set photo_x = 0 where photo_x is null;
+update public.ix_hall_of_fame set photo_y = 0 where photo_y is null;
+update public.ix_hall_of_fame set photo_scale = 1 where photo_scale is null or photo_scale <= 0 or photo_scale > 5;
+alter table public.ix_hall_of_fame alter column photo_x set default 0;
+alter table public.ix_hall_of_fame alter column photo_y set default 0;
+alter table public.ix_hall_of_fame alter column photo_scale set default 1;
+alter table public.ix_hall_of_fame alter column photo_x set not null;
+alter table public.ix_hall_of_fame alter column photo_y set not null;
+alter table public.ix_hall_of_fame alter column photo_scale set not null;
+alter table public.ix_hall_of_fame drop constraint if exists ix_hall_of_fame_photo_scale_check;
+alter table public.ix_hall_of_fame add constraint ix_hall_of_fame_photo_scale_check check (photo_scale > 0 and photo_scale <= 5);
 alter table public.ix_hall_of_fame enable row level security;
 alter table public.ix_daily_goals enable row level security;
 drop policy if exists ix_hof_read on public.ix_hall_of_fame; drop policy if exists ix_hof_manage on public.ix_hall_of_fame;

@@ -1,8 +1,8 @@
-KNG ENTERTAINMENT - COMPLETE INTEGRATED BUILD
+KNG ENTERTAINMENT - FULL FIXED DEPLOY PACK
 
-This pack keeps the KNG Schedule red/black theme and background, the KNG Estate Roleplay Hall of Fame frame system, the existing schedule, Discord login, operations, prizes/commands, access hierarchy and the integrated interaction tools.
+This is the full build. It keeps the existing KNG Schedule calendar and integrates the KNG Entertainment operations, Actions/Interactions tools, Discord login, access hierarchy, prize commands, security, event completion, recurring events and Hall of Fame editor.
 
-FILES TO UPLOAD TO YOUR REPO
+UPLOAD THESE FILES TO THE ROOT OF YOUR RENDER/GITHUB REPOSITORY
 - index.html
 - supabase.js
 - app.js
@@ -18,34 +18,55 @@ FILES TO UPLOAD TO YOUR REPO
 - hof-frame-source-original.png
 
 DATABASE
-- Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql ONCE in the Supabase SQL Editor.
-- This migration is intended to repair the missing schema used by the site and is re-runnable.
-- It adds the event completion/attendance/winner fields, public feedback and suggestions, the Actions/Interactions roster, crashout protection, hungry-pool claim RPCs, prize commands, Hall of Fame permissions and the requested Party/Event/Battle Royale/Community Meeting/Staff Meeting event types.
+- KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql is the database migration.
+- Run it in Supabase SQL Editor after uploading the website files.
+- It is designed to be re-runnable and includes the missing Hall of Fame/Daily Goals tables, event completion fields, recurring event fields, staff access requests, Operations tables, Actions/Interactions roster, security/RLS and Hall of Fame image storage.
+- The migration also fixes staff-event visibility at the database level: public/players cannot query staff-only events, while confirmed MEMBER/ADM/MANAGER/DIRECTOR users can.
 
-IMPORTANT BEHAVIOUR
-- Events do NOT auto-complete. Staff must open a passed event, enter attendance, optionally enter the winner, then confirm completion.
-- Completed events show attendance and winner on the calendar and feed the most/least popular event leaderboards.
-- Meetings are separate from event statistics. Only Managers and Directors can create meetings.
-- Community Meeting is configured as a fortnightly recurring staff-only meeting series when no existing series is present.
-- Daily Goal target changes are Director-only.
-- Announcements and Logs are no longer navigation tabs.
-- Event feedback and event suggestions are public. The Event Suggestions forum is public.
-- Actions/Interactions roster allocation is one-side-only per staff member.
-- Roster uses the KNG-style hierarchy: Director, Manager Of Actions/Interactions, ADM, AUX, LD, Sub-LD, Member, with ALOPA, Mentor, Strikes, Notes, Promote, Edit and Delete controls.
-- Export to Discord generates a copyable KNG-style hierarchy output.
-- Prize command default: /giveitem {discord_id} {code} {amount}
-- Crashout protection defaults to 3 removals in 60 minutes, then a 30-minute timeout. Directors can change these limits in Security.
+IMPORTANT PERMISSION HIERARCHY
+PUBLIC < MEMBER < ADM < MANAGER < DIRECTOR
+- Discord login identifies the user but does not automatically grant staff access.
+- PUBLIC can see player-facing events.
+- Confirmed MEMBER+ can see staff-only meetings/events.
+- ADM can manage Entertainment operations and confirm MEMBER access.
+- MANAGER can confirm MEMBER and ADM access and manage staff meetings.
+- DIRECTOR can confirm MEMBER, ADM and MANAGER access and change crashout limits/daily targets.
+- Director access is assigned directly by an existing Director.
 
-DEPLOYMENT
-1. Replace the files above in the repo.
-2. Keep the existing Render/Supabase deployment settings.
-3. Commit and push to GitHub so Render redeploys.
-4. Run the SQL migration in Supabase.
-5. Hard refresh the website (Ctrl+F5).
+FEATURES RETAINED
+- Existing Month / Week / Day / Agenda schedule
+- Party / Event / Battle Royale / Community Meeting presets
+- Recurring events: weekly, fortnightly, monthly
+- Community Meeting preset automatically selects staff-only + every 2 weeks
+- Staff meetings are staff-only and separate from event statistics
+- Event completion with attendance, winner and completion notes
+- Completed-event leaderboard from most popular to least popular
+- Actions & Interactions side allocation and hierarchy
+- Tracker / Hungry Pool / Reductions / Helpers
+- Points and staff leaderboard
+- Prize Win flow
+- Commands tab / command vault with one-click Copy
+- Automatic command placeholders: {discord_id}, {name}, {code}, {amount}
+- Kick-off / remove-from-team flow defaults to Inactivity
+- Crashout protection and timeout system
+- Access requests and approval chain
+- Public event suggestions and event feedback
+- KNG Estate Roleplay Hall of Fame frame editor with original/gold/emerald/ocean/sunset/pink/grey frames
+- Hall of Fame photo drag + wheel zoom, custom colour controls and persistent photo position/scale
+- Hall of Fame winner download
+- Daily Goals with Director-only target changes
 
-LAYOUT PATCH 30 OCT 2026
-- Restored the crown mark in the top-left KNG header badge.
-- Reordered navigation into Public/Community, Staff, then Operations.
-- Removed stale Announcements/Logs navigation states.
-- Fixed the Month calendar markup to use the existing month-cell styling so dates/events render at the intended size.
-- The supplied migration already normalises legacy event types F3/BR/Meeting/Large Action to Party/Battle Royale/Community Meeting/Event.
+DEPLOY
+1. Replace the files above in the repository.
+2. Commit and push to GitHub.
+3. Wait for Render to redeploy.
+4. Open Supabase SQL Editor and run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql once.
+5. Hard refresh the website with Ctrl+F5.
+
+DO NOT CHANGE
+- Supabase project URL
+- Supabase publishable key
+- Discord OAuth client ID/secret
+- Render service settings
+
+If the site is opened before the migration is run, the app now shows an in-page database setup message instead of throwing the old browser schema-cache alerts for Hall of Fame/Daily Goals.

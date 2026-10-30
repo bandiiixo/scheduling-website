@@ -40,10 +40,10 @@ async function init() {
 
         currentUser = data?.session?.user || null;
 
+        await loadAccess();
         await loadEventTypes();
         await loadStaff();
         await loadEvents();
-        await loadAccess();
         await loadAccessRequests();
         await loadOpsData();
         await loadInteractionData();
@@ -146,8 +146,14 @@ async function loadEvents() {
     applyEventVisibility();
 }
 
+function canViewStaffEvents() {
+    // Any confirmed KNG staff member can see staff-only meetings/events.
+    // Players/public visitors must never receive them in the UI.
+    return permissionRank() >= 1;
+}
+
 function applyEventVisibility() {
-    events = (allEvents || []).filter(e => canManage() || (e.visibility || "public") !== "staff");
+    events = (allEvents || []).filter(e => canViewStaffEvents() || (e.visibility || "public") !== "staff");
 }
 
 
@@ -1218,7 +1224,9 @@ function openCreateMeetingModal() {
 async function createMeeting(e) {
     e.preventDefault(); if (!isAdmin()) return;
     const title=document.getElementById("meetingTitle").value.trim(); const date=document.getElementById("meetingDate").value; const start=document.getElementById("meetingStart").value; const end=document.getElementById("meetingEnd").value; const repeat=document.getElementById("meetingRepeat").value; const until=document.getElementById("meetingRepeatUntil").value; const description=document.getElementById("meetingDescription").value.trim();
-    const err=document.getElementById("meetingFormError"); if(end<=start){err.textContent="End time must be later than start time."; return;}
+    const err=document.getElementById("meetingFormError");
+    if(end<=start){err.textContent="End time must be later than start time."; return;}
+    if(repeat!=="none" && until < date){err.textContent="Repeat until must be on or after the first meeting date."; return;}
     const meetingType = eventTypes.find(t => String(t.name||"").toLowerCase() === "staff meeting") || eventTypes.find(t => String(t.name||"").toLowerCase() === "community meeting");
     if (!meetingType) { err.textContent="Staff Meeting event type is missing."; return; }
     const dates=buildRecurringDates(date, repeat, until); const recurrenceGroupId=crypto.randomUUID();
@@ -1282,6 +1290,11 @@ async function createEvent(event) {
         errorBox.textContent =
             "End time must be later than start time.";
 
+        return;
+    }
+
+    if (repeat !== "none" && repeatUntil < eventDate) {
+        errorBox.textContent = "Repeat until must be on or after the first event date.";
         return;
     }
 
@@ -1390,6 +1403,10 @@ function openEditEvent(eventId) {
         events.find(item => item.id === eventId);
 
     if (!event || !canManage()) return;
+    if (event.is_meeting && !isAdmin()) {
+        alert("Only Managers and Directors can edit staff meetings.");
+        return;
+    }
 
 
     showModal(`
@@ -1513,10 +1530,10 @@ function openEditEvent(eventId) {
 
                     <div class="form-field">
                         <label>Visibility</label>
-                        <select id="editEventVisibility">
+                        <select id="editEventVisibility" ${event.is_meeting ? "disabled" : ""}>
                             <option value="public" ${(event.visibility || "public") === "public" ? "selected" : ""}>Player visible</option>
                             <option value="staff" ${event.visibility === "staff" ? "selected" : ""}>Staff only</option>
-                        </select>
+                        </select>${event.is_meeting ? '<small>Staff meetings are always staff-only.</small>' : ''}
                     </div>
 
                     <div class="form-field full">
@@ -1571,6 +1588,11 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById("editEventFormError");
 
     errorBox.textContent = "";
+    const event = events.find(item => item.id === eventId);
+    if (!event) {
+        errorBox.textContent = "Event could not be found.";
+        return;
+    }
 
 
     const title =
@@ -1604,7 +1626,13 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById(
             "editEventDescription"
         ).value.trim();
-    const visibility = document.getElementById("editEventVisibility")?.value || "public";
+    let visibility = document.getElementById("editEventVisibility")?.value || "public";
+    const editingMeeting = Boolean(event && event.is_meeting);
+    if (editingMeeting && !isAdmin()) {
+        errorBox.textContent = "Only Managers and Directors can edit staff meetings.";
+        return;
+    }
+    if (editingMeeting) visibility = "staff";
 
 
     if (endTime <= startTime) {
@@ -1665,6 +1693,10 @@ async function deleteEvent(eventId) {
         events.find(item => item.id === eventId);
 
     if (!event) return;
+    if (event.is_meeting && !isAdmin()) {
+        alert("Only Managers and Directors can delete staff meetings.");
+        return;
+    }
 
 
     const confirmed =
@@ -2508,7 +2540,13 @@ function opsCard(title, body, extra="") {
 function opsErrorNotice(name) {
     const err = opsLoadErrors[name];
     if (!err) return "";
-    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>kng_schedule_operations.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
+    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
+}
+
+function ixSchemaNotice(name) {
+    const err = opsLoadErrors[name];
+    if (!err) return "";
+    return `<div class="ops-notice warning">${escapeHtml(name)} is not set up yet. Run <code>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
 }
 
 function renderOperations() {
@@ -2664,7 +2702,7 @@ function renderOpsSecurity() {
     return `${opsErrorNotice("security")}
         <div class="ops-grid-two">
             ${canManage() ? opsCard("Crashout timeout", `<form id="timeoutForm" class="ops-form"><textarea name="emails" rows="5" placeholder="user1@example.com\nuser2@example.com\nuser3@example.com" required></textarea><input name="minutes" type="number" min="1" max="10080" value="30" required><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Timeout everyone</button><small>Manual timeout. Automatic crashout protection is ${Number(crashoutSettings.max_removals)} removals in ${Number(crashoutSettings.window_minutes)} minutes, then ${Number(crashoutSettings.timeout_minutes)} minutes timed out.</small></form>`) : ""}
-            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Kick off &amp; block access</button><small>Crashout protection stops an actor exceeding the configured removal limit.</small></form>`) : ""}
+            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" value="Inactivity" placeholder="Reason"><button class="danger-button">Kick off &amp; block access</button><small>Kick-offs default to <b>Inactivity</b>. Crashout protection stops an actor exceeding the configured removal limit.</small></form>`) : ""}
             ${isDirector() ? opsCard("Crashout protection settings", `<form id="crashoutSettingsForm" class="ops-form"><label>Maximum removals<input name="max_removals" type="number" min="1" max="50" value="${Number(crashoutSettings.max_removals)}" required></label><label>Window (minutes)<input name="window_minutes" type="number" min="1" max="1440" value="${Number(crashoutSettings.window_minutes)}" required></label><label>Timeout (minutes)<input name="timeout_minutes" type="number" min="1" max="10080" value="${Number(crashoutSettings.timeout_minutes)}" required></label><button class="primary-button">Save Crashout Limit</button></form>`) : ""}
         </div>
         ${opsCard("Active timeouts", (ops.timeouts||[]).length ? `<div class="ops-list">${ops.timeouts.filter(t=>new Date(t.expires_at)>new Date()).map(t=>`<div class="ops-row"><div><b>${escapeHtml(t.email)}</b><small>${escapeHtml(t.reason||"")} · until ${formatOpsDateTime(t.expires_at)}</small></div><span class="ops-pill">Timed out</span></div>`).join("")}</div>` : `<div class="ops-empty">No active timeouts.</div>`)}
@@ -2828,7 +2866,7 @@ async function submitBlock(e) {
     if (!canManage()) return;
     const data = new FormData(e.target);
     const emails = String(data.get("emails") || "").split(/\s*[\n,;]\s*/).map(x=>x.trim().toLowerCase()).filter(Boolean);
-    const reason = String(data.get("reason") || "").trim();
+    const reason = String(data.get("reason") || "Inactivity").trim() || "Inactivity";
     if (!emails.length) return;
     const windowStart = new Date(Date.now() - Number(crashoutSettings.window_minutes || 60) * 60000).toISOString();
     const { count } = await supabaseClient.from('ops_security').select('id', { count: 'exact', head: true }).eq('actor_id', currentUser.id).eq('event_type', 'team.removed').gte('created_at', windowStart);
@@ -3091,12 +3129,12 @@ function renderHallOfFame(){
     const selected=String(current.frame||'Original').toLowerCase().replace(/\s+/g,'-') || 'original';
     const colour=current.frame_colour || '#ff19b7';
     const safeUrl=escapeHtml(current.image_url||'');
-    return `<div class="ix-hof-layout ix-hof-layout-v2">
+    return `${ixSchemaNotice("ix_hall_of_fame")}<div class="ix-hof-layout ix-hof-layout-v2">
       <div class="ix-hof-canvas ix-hof-stage">
         <div class="hof-composer" id="hofComposer" data-frame="${escapeHtml(selected)}" style="--hof-custom:${escapeHtml(colour)}">
           <img id="hofFrameImage" class="hof-frame-image" src="${hofFrameAsset(selected)}" alt="KNG Estate Roleplay Hall of Fame frame">
           <div class="hof-photo-window" id="hofPhotoWindow">
-            ${safeUrl?`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${safeUrl}" alt="Winner" style="--hof-scale:1;--hof-x:0px;--hof-y:0px">`:`<span class="hof-photo-placeholder">Add winner photo</span>`}
+            ${safeUrl?`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${safeUrl}" alt="Winner" style="--hof-scale:${Number(current.photo_scale)||1};--hof-x:${Number(current.photo_x)||0}px;--hof-y:${Number(current.photo_y)||0}px">`:`<span class="hof-photo-placeholder">Add winner photo</span>`}
           </div>
         </div>
       </div>
@@ -3106,9 +3144,12 @@ function renderHallOfFame(){
           <div class="hof-control-section"><b>Frame Library</b><div class="ix-frame-grid hof-frame-grid">${frames.map(f=>`<button class="ix-frame-chip hof-frame-chip ${selected===f.key?'active':''}" data-hof-frame="${f.key}" onclick="selectHofFrame('${f.key}')">${escapeHtml(f.name)}</button>`).join('')}</div></div>
           <label>Winner name<input id="hofWinnerName" value="${escapeHtml(current.winner_name||'')}" placeholder="Winner name"></label>
           <div class="hof-photo-actions">${canManage()?`<button class="header-button" onclick="openHofUpload()">Add winner photo</button>`:''}<button class="header-button" onclick="resetHofPhoto()">Reset photo</button></div>
-          <div class="hof-custom-controls" id="hofCustomControls">
-            <label>Custom colour<input id="hofColour" type="color" value="${escapeHtml(colour)}" oninput="applyHofCustomColour(this.value)"></label>
-            <label>Intensity<input id="hofIntensity" type="range" min="0" max="100" value="${Math.round((Number(current.intensity)||100))}" oninput="applyHofCustomIntensity(this.value)"></label>
+          <div class="hof-colour-panel" id="hofCustomControls">
+            <div class="hof-colour-top"><div class="hof-colour-swatch" id="hofColourSwatch" style="background:${escapeAttribute(colour)}" onclick="document.getElementById('hofColour')?.click()"></div><input id="hofHex" class="hof-hex-input" value="${escapeAttribute(colour.toUpperCase())}" maxlength="7" aria-label="Hex colour" oninput="applyHofHex(this.value)"><span id="hofRgb" class="hof-rgb">${escapeHtml(hofRgbLabel(colour))}</span></div>
+            <label class="hof-range-label"><span>Hue</span><input id="hofHue" type="range" min="0" max="359" value="${hofHueFromHex(colour)}" oninput="applyHofHue(this.value)"><small id="hofHueValue">${hofHueFromHex(colour)}°</small></label>
+            <label class="hof-range-label"><span>Intensity</span><input id="hofIntensity" type="range" min="0" max="100" value="${Math.round((Number(current.intensity)||100))}" oninput="applyHofCustomIntensity(this.value)"><small id="hofIntensityValue">${Math.round((Number(current.intensity)||100))}%</small></label>
+            <button type="button" class="secondary-button" onclick="resetHofColour()">Reset colour</button>
+            <input id="hofColour" type="color" value="${escapeAttribute(colour)}" oninput="applyHofCustomColour(this.value)" style="position:absolute;left:-9999px;opacity:0;pointer-events:none">
           </div>
           <div class="hof-help">Drag the winner photo inside the black box. Scroll to zoom.</div>
           <div class="hof-action-row">${canManage()?`<button class="primary-button" onclick="saveHallOfFame()">Save Winner</button>`:""}<button class="header-button" onclick="downloadHallOfFame()">Download</button></div>
@@ -3122,6 +3163,45 @@ function hofFrameAsset(key){
     if(['gold','emerald','ocean','sunset','pink','grey-scale'].includes(key)) return `kng-hof-${key}.png`;
     return 'kng-hof-grey-scale.png';
 }
+function hofRgbLabel(hex){
+    const value=String(hex||'').replace('#','');
+    if(!/^[0-9a-fA-F]{6}$/.test(value)) return 'rgb(255, 25, 183)';
+    return `rgb(${parseInt(value.slice(0,2),16)}, ${parseInt(value.slice(2,4),16)}, ${parseInt(value.slice(4,6),16)})`;
+}
+function hofHueFromHex(hex){
+    const value=String(hex||'').replace('#','');
+    if(!/^[0-9a-fA-F]{6}$/.test(value)) return 330;
+    const r=parseInt(value.slice(0,2),16)/255,g=parseInt(value.slice(2,4),16)/255,b=parseInt(value.slice(4,6),16)/255;
+    const max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min; let h=0;
+    if(d){ if(max===r) h=((g-b)/d)%6; else if(max===g) h=(b-r)/d+2; else h=(r-g)/d+4; h*=60; if(h<0)h+=360; }
+    return Math.round(h);
+}
+function hofHslToHex(h,s=90,l=55){
+    s/=100;l/=100;const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;let r=0,g=0,b=0;
+    if(h<60){r=c;g=x}else if(h<120){r=x;g=c}else if(h<180){g=c;b=x}else if(h<240){g=x;b=c}else if(h<300){r=x;b=c}else{r=c;b=x}
+    return '#'+[r,g,b].map(v=>Math.round((v+m)*255).toString(16).padStart(2,'0')).join('').toUpperCase();
+}
+function updateHofColourMeta(value){
+    const hex=String(value||'#FF19B7').toUpperCase();
+    const swatch=document.getElementById('hofColourSwatch'); if(swatch) swatch.style.background=hex;
+    const hexEl=document.getElementById('hofHex'); if(hexEl && /^#[0-9A-F]{6}$/.test(hex)) hexEl.value=hex;
+    const rgb=document.getElementById('hofRgb'); if(rgb) rgb.textContent=hofRgbLabel(hex);
+    const hue=hofHueFromHex(hex); const hueEl=document.getElementById('hofHue'); if(hueEl) hueEl.value=String(hue);
+    const hueValue=document.getElementById('hofHueValue'); if(hueValue) hueValue.textContent=`${hue}°`;
+}
+function applyHofHue(value){
+    const hue=Math.max(0,Math.min(359,Number(value)||0));
+    const hex=hofHslToHex(hue); const input=document.getElementById('hofColour'); if(input) input.value=hex;
+    applyHofCustomColour(hex); const hueValue=document.getElementById('hofHueValue'); if(hueValue) hueValue.textContent=`${hue}°`;
+}
+function applyHofHex(value){
+    let hex=String(value||'').trim().toUpperCase(); if(!hex.startsWith('#')) hex='#'+hex;
+    if(/^#[0-9A-F]{6}$/.test(hex)){ const input=document.getElementById('hofColour'); if(input) input.value=hex; applyHofCustomColour(hex); updateHofColourMeta(hex); }
+}
+function resetHofColour(){
+    const hex='#FF19B7'; const input=document.getElementById('hofColour'); if(input) input.value=hex; applyHofCustomColour(hex); updateHofColourMeta(hex);
+}
+
 function selectHofFrame(key){
     const composer=document.getElementById('hofComposer'); if(!composer) return;
     composer.dataset.frame=key;
@@ -3136,11 +3216,17 @@ function selectHofFrame(key){
 }
 function applyHofCustomColour(value){
     const composer=document.getElementById('hofComposer'); if(!composer)return;
-    composer.style.setProperty('--hof-custom',value); if(composer.dataset.frame==='custom') selectHofFrame('custom');
+    const hex=String(value||'#FF19B7').toUpperCase();
+    composer.style.setProperty('--hof-custom',hex);
+    const input=document.getElementById('hofColour'); if(input && input.value!==hex) input.value=hex;
+    updateHofColourMeta(hex);
+    if(composer.dataset.frame==='custom') selectHofFrame('custom');
 }
 function applyHofCustomIntensity(value){
     const composer=document.getElementById('hofComposer'); if(!composer)return;
-    composer.style.setProperty('--hof-intensity',`${Math.max(0,Math.min(100,Number(value)||0))/100}`);
+    const intensity=Math.max(0,Math.min(100,Number(value)||0));
+    composer.style.setProperty('--hof-intensity',`${intensity/100}`);
+    const label=document.getElementById('hofIntensityValue'); if(label) label.textContent=`${intensity}%`;
 }
 function resetHofPhoto(){
     const img=document.getElementById('hofWinnerPhoto'); if(!img)return;
@@ -3157,12 +3243,27 @@ function bindHofPhotoControls(){
 async function saveHallOfFame(){
     if(!canManage())return;
     const winner_name=document.getElementById('hofWinnerName')?.value.trim();
+    if(!winner_name) return alert('Enter a winner name first.');
     const image_url=document.getElementById('hofWinnerPhoto')?.src || '';
-    const frame=document.getElementById('hofComposer')?.dataset.frame || 'original';
+    const composer=document.getElementById('hofComposer');
+    const frame=composer?.dataset.frame || 'original';
     const frame_colour=document.getElementById('hofColour')?.value||'#ff19b7';
     const intensity=Number(document.getElementById('hofIntensity')?.value||100);
-    const {error}=await supabaseClient.from('ix_hall_of_fame').insert({winner_name,image_url,frame,frame_colour,intensity,created_by:currentUser.id});
-    if(error)return alert(error.message); await loadInteractionData(); render();
+    const photo=document.getElementById('hofWinnerPhoto');
+    const photo_x=parseFloat(photo?.style.getPropertyValue('--hof-x'))||0;
+    const photo_y=parseFloat(photo?.style.getPropertyValue('--hof-y'))||0;
+    const photo_scale=parseFloat(photo?.style.getPropertyValue('--hof-scale'))||1;
+    const frame_mode=['colour-wheel','fire','rainbow','custom'].includes(frame)?frame:'none';
+    const hue=hofHueFromHex(frame_colour);
+    const payload={winner_name,image_url,frame,frame_colour,frame_mode,hue,intensity,photo_x,photo_y,photo_scale,created_by:currentUser.id};
+    const {error}=await supabaseClient.from('ix_hall_of_fame').insert(payload);
+    if(error){
+        if(String(error.message||'').toLowerCase().includes('schema cache') || String(error.message||'').toLowerCase().includes('does not exist')) {
+            return showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Hall of Fame</span><h2>Database setup required</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">The Hall of Fame table is not installed yet. Run <b>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</b> in Supabase, then refresh the site.</p><div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div></div>`);
+        }
+        return alert(error.message);
+    }
+    await loadInteractionData(); render();
 }
 async function downloadHallOfFame(){
     const composer=document.getElementById('hofComposer'); const frameImg=document.getElementById('hofFrameImage'); if(!composer||!frameImg)return;
@@ -3182,7 +3283,7 @@ function renderDailyGoals(){
     const today=formatDate(new Date());
     const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
     const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
-    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:""}</div></div>`;
+    return `${ixSchemaNotice("ix_daily_goals")}<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:""}</div></div>`;
 }
 
 function renderStaffRoster(){
@@ -3385,7 +3486,12 @@ async function saveDailyGoal() {
     if (!Number.isFinite(n) || n < 1) return;
     const today = formatDate(new Date());
     const { error } = await supabaseClient.from('ix_daily_goals').upsert({ user_id: currentUser.id, goal_date: today, target_points: Math.floor(n), points_earned: 0 }, { onConflict: 'user_id,goal_date' });
-    if (error) return alert(error.message);
+    if (error) {
+        if(String(error.message||'').toLowerCase().includes('schema cache') || String(error.message||'').toLowerCase().includes('does not exist')) {
+            return showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Daily Goals</span><h2>Database setup required</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">The Daily Goals table is not installed yet. Run <b>KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql</b> in Supabase, then refresh the site.</p><div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div></div>`);
+        }
+        return alert(error.message);
+    }
     await loadInteractionData(); render();
 }
 

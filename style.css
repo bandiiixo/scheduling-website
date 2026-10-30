@@ -2062,3 +2062,14 @@ body {
 .public-feedback-list{display:grid;gap:8px;margin-top:10px}
 .public-feedback-list article{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.05)}
 .public-feedback-list article p{margin:4px 0 0;white-space:pre-wrap;line-height:1.45}
+
+/* Hall of Fame colour editor polish */
+.hof-colour-panel{display:grid;gap:10px;padding:12px;border:1px solid rgba(255,255,255,.06);border-radius:12px;background:rgba(255,255,255,.018)}
+.hof-colour-top{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:8px;align-items:center}
+.hof-colour-swatch{width:42px;height:32px;border-radius:7px;border:1px solid rgba(255,255,255,.18);cursor:pointer;box-shadow:inset 0 0 0 1px rgba(0,0,0,.2)}
+.hof-hex-input{min-width:0!important;background:#090c15!important;border:1px solid rgba(255,255,255,.08)!important;color:#fff!important;border-radius:7px!important;padding:8px 9px!important;font-family:ui-monospace,SFMono-Regular,Consolas,monospace!important;font-size:12px!important}
+.hof-rgb{color:#777f94;font-size:10px;white-space:nowrap}
+.hof-range-label{display:grid!important;grid-template-columns:58px 1fr 38px;align-items:center;gap:8px!important}
+.hof-range-label input[type=range]{width:100%;padding:0!important}
+.hof-range-label small{color:#777f94;text-align:right}
+@media(max-width:600px){.hof-colour-top{grid-template-columns:42px 1fr}.hof-rgb{grid-column:2;justify-self:start}.hof-range-label{grid-template-columns:52px 1fr 34px}}
