@@ -335,6 +335,7 @@ function render() {
         renderAccessRestriction();
         return;
     }
+    if (ixView === "public-f3") { renderPublicF3Calendar(); return; }
     if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView !== "schedule") {
         renderOperations();
@@ -384,6 +385,11 @@ function render() {
                 ${currentUser ? `${nextRequestedAccessLevel() ? `<button class="header-button" onclick="requestStaffAccess()">Request ${String(nextRequestedAccessLevel()).toUpperCase()} Access</button>` : ""}<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}
               `
     }
+
+    <button class="header-button public-f3-button"
+        onclick="switchOpsView('public-f3')">
+        🎮 Public F3
+    </button>
 
     <button class="header-button"
         onclick="goToday()">
@@ -2506,8 +2512,8 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
 }
 
 async function switchOpsView(view) {
-    const publicViews = ["event-suggestions"];
-    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions"];
+    const publicViews = ["event-suggestions", "public-f3"];
+    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions", "public-f3"];
     if (view !== "schedule" && !currentUser && !publicViews.includes(view)) {
         showLoginMessage();
         return;
@@ -3167,9 +3173,81 @@ function interactionHeader(title, subtitle) {
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
             ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
+            <button class="header-button public-f3-button" onclick="switchOpsView('public-f3')">🎮 Public F3</button>
             ${currentUser ? `<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}<button class="header-button" onclick="goToday()">Today</button>
         </div>
     </header>`;
+}
+
+function renderPublicF3Calendar() {
+    const today = formatDate(new Date());
+    const now = new Date();
+    const publicEvents = (allEvents || [])
+        .filter(e => e.event_date === today && !e.is_meeting && (e.visibility || "public") !== "staff")
+        .sort((a, b) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
+
+    let nextFound = false;
+    const cards = publicEvents.map(e => {
+        const start = new Date(`${e.event_date}T${String(e.start_time || "00:00:00").slice(0,8)}`);
+        const end = new Date(`${e.event_date}T${String(e.end_time || e.start_time || "00:00:00").slice(0,8)}`);
+        const passed = end.getTime() <= now.getTime();
+        const upcoming = !passed && !nextFound;
+        if (upcoming) nextFound = true;
+        const type = e.event_types?.name || "Event";
+        return `
+            <article class="public-f3-event ${passed ? "is-passed" : ""} ${upcoming ? "is-next" : ""}">
+                <div class="public-f3-time">
+                    <strong>${formatTime(e.start_time)}</strong>
+                    <span>${formatTime(e.end_time)}</span>
+                </div>
+                <div class="public-f3-event-main">
+                    <div class="public-f3-event-title-row">
+                        <h3>${escapeHtml(e.title)}</h3>
+                        ${upcoming ? `<span class="public-f3-next-badge">NEXT</span>` : ""}
+                    </div>
+                    <span class="public-f3-type">${escapeHtml(type)}</span>
+                    ${e.location ? `<span class="public-f3-location">📍 ${escapeHtml(e.location)}</span>` : ""}
+                </div>
+            </article>`;
+    }).join("");
+
+    app.innerHTML = `
+        <div class="schedule-app public-f3-app">
+            <header class="schedule-header ops-header public-f3-header">
+                <div class="schedule-brand">
+                    <div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div>
+                    <div>
+                        <h1>Public F3 Events</h1>
+                        <span>Today’s KNG Entertainment event schedule</span>
+                    </div>
+                </div>
+                <div class="schedule-header-actions">
+                    <span class="mode-badge player-mode">PUBLIC VIEW</span>
+                    ${currentUser ? `<button class="header-button" onclick="switchOpsView('schedule')">Back to Schedule</button><button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}
+                </div>
+            </header>
+
+            <div class="app-body">
+                ${operationsNavHtml()}
+                <main class="operations-main public-f3-main">
+                    <div class="public-f3-wrap">
+                        <section class="public-f3-hero">
+                            <div>
+                                <span class="public-f3-eyebrow">F3 EVENT CALENDAR</span>
+                                <h2>${new Date(`${today}T00:00:00`).toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long", year:"numeric"})}</h2>
+                                <p>Public entertainment events only. Staff meetings and private events are never shown here.</p>
+                            </div>
+                            <div class="public-f3-count"><strong>${publicEvents.length}</strong><span>events today</span></div>
+                        </section>
+
+                        <section class="public-f3-list">
+                            ${cards || `<div class="ix-empty public-f3-empty">No public F3 events are scheduled for today.</div>`}
+                        </section>
+                    </div>
+                </main>
+            </div>
+        </div>
+        <div id="modalContainer"></div>`;
 }
 
 function renderInteractionView() {
@@ -3186,7 +3264,8 @@ function renderInteractionView() {
         "hall-of-fame":["Hall of Fame","Winner frames and event recognition"],
         "daily-goals":["Daily Goals","Track your interaction target"],
         "staff-roster":["Staff Roster","Current KNG Entertainment staff"],
-        "event-suggestions":["Event Suggestions","Public ideas and feedback for future events"]
+        "event-suggestions":["Event Suggestions","Public ideas and feedback for future events"],
+        "public-f3":["Public F3 Events","Today’s public entertainment schedule"]
     };
     const [title,subtitle]=titles[ixView] || titles["command-dashboard"];
     app.innerHTML=`<div class="schedule-app operations-app ix-integration-app">${interactionHeader(title,subtitle)}<div class="app-body operations-body">${operationsNavHtml()}<main class="operations-main"><div class="operations-content">${renderIxViewHtml()}</div></main></div><div id="modalContainer"></div></div>`;
