@@ -21,7 +21,7 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
-let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
+let ixView = localStorage.getItem("kng.ixView") || "";
 let ixData = { announcements: [], hof: [], goals: [] };
 let ixLoadErrors = {};
 let hofEditor = { frame: "Original", mode: "none", hue: 310, intensity: 100, colour: "#22D3EE", photo: null, photoX: 0, photoY: 0, photoZoom: 1, dragging: false, dragStartX: 0, dragStartY: 0, photoStartX: 0, photoStartY: 0, frameImage: null, photoImage: null, ready: false };
@@ -295,6 +295,16 @@ function availableGrantLevels() {
 
 function render() {
     const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
+    if (!currentUser) {
+        ixView = "";
+        opsView = "schedule";
+        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
+    }
+    if (accessBlock || currentTimeout) {
+        ixView = "";
+        opsView = "schedule";
+        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
+    }
     if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (accessBlock || currentTimeout) {
         renderAccessRestriction();
@@ -1826,7 +1836,10 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById(
             "editEventDescription"
         ).value.trim();
-    const visibility = document.getElementById("editEventVisibility")?.value || "public";
+    let visibility = document.getElementById("editEventVisibility")?.value || "public";
+    const selectedType = eventTypes.find(t => t.id === eventTypeId);
+    const isMeeting = event.is_meeting || ["staff meeting","community meeting"].includes(String(selectedType?.name || "").toLowerCase());
+    if (isMeeting) visibility = "staff";
 
 
     if (endTime <= startTime) {
@@ -1850,6 +1863,7 @@ async function updateEvent(formEvent, eventId) {
             description: description || null,
             staff_required: staffRequired,
             visibility,
+            is_meeting: isMeeting,
             updated_by: currentUser?.id || null
         })
         .eq("id", eventId);
@@ -2406,6 +2420,9 @@ async function logout() {
 
     currentUser = null;
     currentAccess = null;
+    ixView = "";
+    opsView = "schedule";
+    try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
 
     render();
 }
@@ -2602,6 +2619,13 @@ window.handleModalBackdrop =
 
 window.openLogin =
     openLogin;
+window.logout = logout;
+window.switchOpsView = switchOpsView;
+window.copyHallOfFame = copyHallOfFame;
+window.downloadHallOfFame = downloadHallOfFame;
+window.setHofMode = setHofMode;
+window.setHofColour = setHofColour;
+window.resetHofColour = resetHofColour;
 
 
 
@@ -2733,7 +2757,7 @@ function opsCard(title, body, extra="") {
 function opsErrorNotice(name) {
     const err = opsLoadErrors[name];
     if (!err) return "";
-    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>kng_schedule_operations.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
+    return `<div class="ops-notice warning">${escapeHtml(name)} could not be loaded. <small>${escapeHtml(err)}</small></div>`;
 }
 
 function renderOperations() {
@@ -2867,7 +2891,7 @@ function renderOpsHungry() {
             ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form><small>Staff can claim an open slot. It is only completed when someone marks it complete.</small>`) : ""}
             ${opsCard("Hungry Pool", openEntries.length ? `<div class="ops-list">${openEntries.map(x=>{
                 const claimed = x.status === "claimed";
-                const mine = x.claimed_by && currentUser && x.claimed_by === currentUser.id;
+                const mine = x.claimed_by && currentUser && String(x.claimed_by) === String(currentUser.id);
                 return `<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small>${x.notes ? `<small>${escapeHtml(x.notes)}</small>` : ""}${claimed ? `<small><strong>Claimed by ${escapeHtml(x.claimed_by_name || "Staff member")}</strong></small>` : `<small><span class="ops-pill">Open</span></small>`}</div><div class="ops-row-actions">${!claimed && currentUser && permissionRank() >= 1 ? `<button class="primary-button small ops-claim-hungry" data-id="${x.id}">Claim</button>` : ""}${mine ? `<button class="secondary-button small ops-unclaim-hungry" data-id="${x.id}">Unclaim</button>` : ""}${(mine || canManage()) && claimed ? `<button class="primary-button small ops-complete-hungry" data-id="${x.id}">Mark Complete</button>` : ""}${canManage() ? `<button class="danger-button small ops-delete-hungry" data-id="${x.id}">Remove</button>` : ""}</div></div>`;
             }).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
         </div>
@@ -3194,7 +3218,13 @@ function interactionHeader(title, subtitle) {
 }
 
 function renderInteractionView() {
-    if (!currentUser) { showLoginMessage(); return; }
+    if (!currentUser) {
+        ixView = "";
+        opsView = "schedule";
+        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
+        render();
+        return;
+    }
     const titles = {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
@@ -3221,17 +3251,36 @@ function renderIxViewHtml(){
     }
 }
 
+function getCurrentStaffRecord() {
+    const discordId = getDiscordIdentity().discordId;
+    if (!discordId) return null;
+    return staff.find(s => String(s.discord_id || "") === String(discordId)) || null;
+}
+
+function getCurrentStaffId() {
+    return getCurrentStaffRecord()?.id || null;
+}
+
+function getTodayPointsForCurrentStaff() {
+    const staffId = getCurrentStaffId();
+    if (!staffId) return 0;
+    const today = formatDate(new Date());
+    return ops.points
+        .filter(p => String(p.staff_id) === String(staffId) && String(p.created_at || "").slice(0,10) === today)
+        .reduce((n,p) => n + Number(p.amount || 0), 0);
+}
+
 function renderInteractionDashboard(){
     const today=formatDate(new Date());
     const todayEvents=allEvents.filter(e=>e.event_date===today && !e.is_meeting);
-    const myPoints=ops.points.filter(p=>String(p.staff_id||"")===String(currentUser?.id||"")).reduce((n,p)=>n+Number(p.amount||0),0);
+    const myPoints=getTodayPointsForCurrentStaff();
     const recent=[...ops.tracker].slice(0,8);
     const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e)).length;
-    const booked=ops.hungry.filter(x=>x.status!=="completed").length;
+    const booked=ops.hungry.filter(x=>x.status!=="completed" && x.event_date===today).length;
     const announcements=ixData.announcements.slice(0,4);
     return `<div class="ix-command-grid">
       <div class="ix-stat-row">
-        <div class="ix-stat"><span>Interactions Today</span><strong>${todayEvents.length}</strong><small>scheduled entertainment events</small></div>
+        <div class="ix-stat"><span>Interactions Today</span><strong>${ops.tracker.filter(t=>String(t.created_at||"").slice(0,10)===today).length}</strong><small>logged staff interactions</small></div>
         <div class="ix-stat"><span>Your Points</span><strong>${myPoints}</strong><small>recorded interaction points</small></div>
         <div class="ix-stat"><span>Completed Events</span><strong>${completed}</strong><small>manually completed</small></div>
         <div class="ix-stat"><span>Booked Today</span><strong>${booked}</strong><small>open hungry-pool slots</small></div>
@@ -3264,25 +3313,36 @@ function renderAnnouncements(){
     return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Announcements</h3><small>Keep staff and players informed</small></div>${canEdit?`<button class="primary-button" onclick="openAnnouncementModal()">+ Announcement</button>`:""}</div><div class="ix-ann-grid">${ixData.announcements.map(a=>`<article class="ix-ann-card"><div><span class="ix-label">${escapeHtml(a.category||"UPDATE")}</span><small>${formatOpsDateTime(a.created_at)}</small></div><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body||"")}</p>${canEdit?`<button class="ix-danger-link" onclick="deleteAnnouncement('${a.id}')">Delete</button>`:""}</article>`).join("") || `<div class="ix-empty">No announcements yet.</div>`}</div></div>`;
 }
 
+function bindInteractionHandlers(){ }
+
+async function openAnnouncementModal(){
+    if(!canManage()) return;
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Announcement</span><h2>New Announcement</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="ixAnnForm" class="ops-form"><input name="title" placeholder="Title" required maxlength="120"><select name="category"><option>UPDATE</option><option>IMPORTANT</option><option>EVENT</option><option>STAFF</option></select><textarea name="body" placeholder="Announcement" required rows="6"></textarea><button class="primary-button">Publish</button></form></div>`);
+    document.getElementById("ixAnnForm")?.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await supabaseClient.from("ix_announcements").insert({...d,created_by:currentUser.id});if(error)return alert(error.message);closeModal();await loadInteractionData();render();});
+}
+
+async function deleteAnnouncement(id){ if(!canManage()||!confirm("Delete this announcement?"))return;const {error}=await supabaseClient.from("ix_announcements").delete().eq("id",id);if(error)return alert(error.message);await loadInteractionData();render(); }
 function renderHallOfFame(){
     const current=ixData.hof[0] || {};
-    const savedColour = current.frame_colour || "#22D3EE";
-    hofEditor.frame = current.frame || "Original";
+    hofEditor.frame = "KNG Estate Roleplay";
     hofEditor.mode = current.frame_mode || "none";
     hofEditor.hue = Number(current.hue ?? 310);
     hofEditor.intensity = Number(current.intensity ?? 100);
-    hofEditor.colour = savedColour;
+    hofEditor.colour = current.frame_colour || "#FF2D78";
     hofEditor.photo = current.image_url || null;
-    const frames = ["Original","Gold","Emerald","Ocean","Sunset","Pink"];
+    hofEditor.photoX = Number(current.photo_x ?? 0);
+    hofEditor.photoY = Number(current.photo_y ?? 0);
+    hofEditor.photoZoom = Number(current.photo_zoom ?? 1);
+    const modeLabel = {none:"Original",hue:"Colour Wheel",fire:"Fire",rainbow:"Rainbow",gray:"Gray Scale",custom:"Custom"}[hofEditor.mode] || "Original";
     return `<div class="hof-studio">
       <div class="hof-heading">
-        <div><span class="hof-eyebrow">CREATIVE STUDIO</span><h2>Hall of Fame</h2><p>Drop in a winner photo, style the frame, then copy or save.</p></div>
+        <div><span class="hof-eyebrow">KNG INTERACTIONS · HALL OF FAME</span><h2>Hall of Fame</h2><p>Use the KNG Estate Roleplay frame, add the winner photo, then customise the colour exactly like the original editor.</p></div>
       </div>
       <div class="hof-studio-grid">
         <section class="hof-canvas-panel">
           <div class="hof-canvas-wrap">
-            <canvas id="hofCanvas" width="952" height="1188" aria-label="Hall of Fame frame preview"></canvas>
-            <div class="hof-help">Drag to move · scroll to zoom</div>
+            <canvas id="hofCanvas" width="1428" height="1782" aria-label="KNG Estate Roleplay Hall of Fame preview"></canvas>
+            <div class="hof-help">Drag photo to move · scroll to zoom</div>
           </div>
           <div class="hof-canvas-actions">
             <button class="secondary-button" onclick="openHofUpload()">↥ Add winner photo</button>
@@ -3292,13 +3352,11 @@ function renderHallOfFame(){
         </section>
         <aside class="hof-controls">
           <div class="hof-control-panel">
-            <div class="hof-panel-title"><span>FRAME LIBRARY</span><small>${frames.length} designs</small></div>
-            <div class="hof-frame-grid">
-              ${frames.map(f=>`<button type="button" class="hof-frame-chip ${hofEditor.frame===f?"selected":""}" data-hof-frame="${escapeAttribute(f)}" onclick="selectHofFrame('${escapeAttribute(f)}')"><span class="hof-thumb hof-thumb-${f.toLowerCase()}"></span><b>${escapeHtml(f)}</b></button>`).join("")}
-            </div>
+            <div class="hof-panel-title"><span>FRAME</span><small>KNG Estate Roleplay</small></div>
+            <button type="button" class="hof-frame-chip selected" data-hof-frame="KNG Estate Roleplay" onclick="selectHofFrame('KNG Estate Roleplay')"><span class="hof-thumb hof-thumb-estate"></span><b>KNG Estate Roleplay</b></button>
           </div>
           <div class="hof-control-panel">
-            <div class="hof-panel-title"><span>FRAME COLOUR</span><small id="hofFilterStatus">${hofEditor.mode==="hue"?"Colour Wheel":hofEditor.mode==="custom"?"Custom":"Original"}</small></div>
+            <div class="hof-panel-title"><span>FRAME COLOUR</span><small id="hofFilterStatus">${modeLabel}</small></div>
             <div class="hof-filter-grid">
               <button type="button" class="${hofEditor.mode==="none"?"active":""}" data-hof-filter="none" onclick="setHofMode('none','Original')">◦ Original</button>
               <button type="button" class="${hofEditor.mode==="hue"?"active":""}" data-hof-filter="hue" onclick="setHofMode('hue','Colour Wheel')">◉ Colour Wheel</button>
@@ -3309,7 +3367,7 @@ function renderHallOfFame(){
             </div>
             <div id="hofColourControls" class="hof-colour-controls" style="display:${["hue","custom"].includes(hofEditor.mode)?"block":"none"}">
               <div class="hof-colour-row"><canvas id="hofHueWheel" width="120" height="120" aria-label="Colour wheel"></canvas><div class="hof-colour-stack"><div class="hof-colour-row"><button type="button" id="hofSwatch" class="hof-swatch" style="background:${escapeAttribute(hofEditor.colour)}" aria-label="Choose colour"></button><input id="hofHex" value="${escapeAttribute(hofEditor.colour.toUpperCase())}" maxlength="7"><span id="hofRgb"></span></div>
-              <label class="hof-range-row"><input id="hofHue" type="range" min="0" max="359" value="${hofEditor.hue}"><small id="hofHueValue">${hofEditor.hue}°</small></label>
+              <label class="hof-range-row"><span>Hue</span><input id="hofHue" type="range" min="0" max="359" value="${hofEditor.hue}"><small id="hofHueValue">${hofEditor.hue}°</small></label>
               <label class="hof-range-row"><span>Intensity</span><input id="hofIntensity" type="range" min="0" max="100" value="${hofEditor.intensity}"><small id="hofIntensityValue">${hofEditor.intensity}%</small></label></div></div>
               <button type="button" class="secondary-button" onclick="resetHofColour()">Reset colour</button>
             </div>
@@ -3317,35 +3375,15 @@ function renderHallOfFame(){
           <div class="hof-control-panel hof-winner-panel">
             <label>Winner name<input id="hofWinnerName" value="${escapeAttribute(current.winner_name||"")}" placeholder="Winner name"></label>
             <small class="hof-saved-note">${current.created_at ? `Last saved ${formatOpsDateTime(current.created_at)}` : "No winner saved yet."}</small>
-            <button type="button" class="primary-button" onclick="saveHallOfFame()">Save Winner</button>
+            ${canManage()?`<button type="button" class="primary-button" onclick="saveHallOfFame()">Save Winner</button>`:`<small class="hof-saved-note">Management access is required to save a winner.</small>`}
           </div>
         </aside>
       </div>
     </div>`;
 }
 
-function renderDailyGoals(){
-    const today=formatDate(new Date());
-    const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
-    const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
-    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${canManage()?`<button class="header-button" onclick="setDailyGoal()">Set Target</button>`:""}</div></div>`;
-}
-
-function renderStaffRoster(){
-    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Staff Roster</h3><small>${staff.length} active staff</small></div></div><div class="ix-table">${staff.map(s=>`<div class="ix-table-row"><div class="ix-avatar">${escapeHtml((s.name||"K").slice(0,1).toUpperCase())}</div><div class="ix-grow"><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||"No Discord ID")}</small></div><span class="ix-pill">ACTIVE</span></div>`).join("") || `<div class="ix-empty">No active staff.</div>`}</div></div>`;
-}
-
-function bindInteractionHandlers(){ }
-
-async function openAnnouncementModal(){
-    if(!canManage()) return;
-    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Announcement</span><h2>New Announcement</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="ixAnnForm" class="ops-form"><input name="title" placeholder="Title" required maxlength="120"><select name="category"><option>UPDATE</option><option>IMPORTANT</option><option>EVENT</option><option>STAFF</option></select><textarea name="body" placeholder="Announcement" required rows="6"></textarea><button class="primary-button">Publish</button></form></div>`);
-    document.getElementById("ixAnnForm")?.addEventListener("submit",async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target).entries());const {error}=await supabaseClient.from("ix_announcements").insert({...d,created_by:currentUser.id});if(error)return alert(error.message);closeModal();await loadInteractionData();render();});
-}
-
-async function deleteAnnouncement(id){ if(!canManage()||!confirm("Delete this announcement?"))return;const {error}=await supabaseClient.from("ix_announcements").delete().eq("id",id);if(error)return alert(error.message);await loadInteractionData();render(); }
 function hofHexToRgb(hex){
-    const v=String(hex||"#22D3EE").replace("#",""); const n=parseInt(v,16);
+    const v=String(hex||"#FF2D78").replace("#",""); const n=parseInt(v,16);
     return [n>>16,(n>>8)&255,n&255];
 }
 function hofRgbToCss(rgb){ return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`; }
@@ -3355,24 +3393,20 @@ function hofHueToHex(h){
     if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
     return "#"+[r,g,b].map(v=>Math.round((v+m)*255).toString(16).padStart(2,"0")).join("").toUpperCase();
 }
-function hueFromHex(hex){
-    const [r,g,b]=hofHexToRgb(hex).map(v=>v/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min;
-    if(!d)return 0; let h=max===r?((g-b)/d)%6:max===g?(b-r)/d+2:(r-g)/d+4; h=Math.round(h*60); return h<0?h+360:h;
-}
-function hofFilterForMode(mode){
-    if(mode==="gray") return "grayscale(1)";
-    if(mode==="fire") return "sepia(.85) saturate(2.8) hue-rotate(-20deg) brightness(1.05)";
-    if(mode==="rainbow") return "hue-rotate(35deg) saturate(1.6)";
-    if(mode==="hue") return `hue-rotate(${hofEditor.hue-310}deg) saturate(${Math.max(.25,hofEditor.intensity/60)})`;
-    if(mode==="custom") return `hue-rotate(${hueFromHex(hofEditor.colour)-310}deg) saturate(${Math.max(.25,hofEditor.intensity/65)})`;
-    if(mode==="gold") return "sepia(.7) saturate(2.1) hue-rotate(-8deg)";
-    if(mode==="emerald") return "hue-rotate(80deg) saturate(1.35)";
-    if(mode==="ocean") return "hue-rotate(145deg) saturate(1.25)";
-    if(mode==="sunset") return "sepia(.35) saturate(2.1) hue-rotate(-35deg)";
-    return "none";
+function hofModeGradient(ctx,w,h,mode,colour,intensity){
+    const a=Math.max(0.15,Math.min(1,Number(intensity||100)/100));
+    let grad;
+    if(mode==="fire"){
+        grad=ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,"#FFF7A0");grad.addColorStop(.28,"#FFD000");grad.addColorStop(.58,"#FF6A00");grad.addColorStop(1,"#C5002F");
+    } else if(mode==="rainbow"){
+        grad=ctx.createLinearGradient(0,0,w,h); ["#FF004C","#FF8A00","#FFE600","#00D86B","#00B7FF","#6D39FF","#E000FF"].forEach((c,i)=>grad.addColorStop(i/6,c));
+    } else {
+        grad=ctx.createLinearGradient(0,0,w,h); grad.addColorStop(0,colour);grad.addColorStop(1,colour);
+    }
+    ctx.save(); ctx.globalAlpha=a; ctx.globalCompositeOperation="color"; ctx.fillStyle=grad; ctx.fillRect(0,0,w,h); ctx.restore();
 }
 function selectHofFrame(name){
-    hofEditor.frame=name;
+    hofEditor.frame="KNG Estate Roleplay";
     document.querySelectorAll("[data-hof-frame]").forEach(b=>b.classList.toggle("selected",b.dataset.hofFrame===name));
     renderHofCanvas();
 }
@@ -3393,10 +3427,10 @@ function setHofColour(hex){
     renderHofCanvas();
 }
 function resetHofColour(){
-    hofEditor.colour="#22D3EE"; hofEditor.hue=180; hofEditor.intensity=100;
-    const h=document.getElementById("hofHue");if(h)h.value=180;
+    hofEditor.colour="#FF2D78"; hofEditor.hue=330; hofEditor.intensity=100;
+    const h=document.getElementById("hofHue");if(h)h.value=330;
     const i=document.getElementById("hofIntensity");if(i)i.value=100;
-    const hv=document.getElementById("hofHueValue");if(hv)hv.textContent="180°";
+    const hv=document.getElementById("hofHueValue");if(hv)hv.textContent="330°";
     const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent="100%";
     setHofMode("custom","Custom"); setHofColour(hofEditor.colour);
 }
@@ -3404,35 +3438,53 @@ function renderHofCanvas(){
     const canvas=document.getElementById("hofCanvas");if(!canvas||!hofEditor.frameImage)return;
     const ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
     ctx.clearRect(0,0,w,h);ctx.fillStyle="#090b11";ctx.fillRect(0,0,w,h);
-    const hole={x:136,y:432,w:710,h:534};
+    // Exact photo window measured from the supplied 476x594 frame and scaled 3x.
+    const hole={x:195,y:645,w:1068,h:789};
     if(hofEditor.photoImage){
         const img=hofEditor.photoImage,scale=Math.max(hole.w/img.width,hole.h/img.height)*hofEditor.photoZoom;
         const dw=img.width*scale,dh=img.height*scale,dx=hole.x+(hole.w-dw)/2+hofEditor.photoX,dy=hole.y+(hole.h-dh)/2+hofEditor.photoY;
         ctx.save();ctx.beginPath();ctx.rect(hole.x,hole.y,hole.w,hole.h);ctx.clip();ctx.drawImage(img,dx,dy,dw,dh);ctx.restore();
     }
-    ctx.save();ctx.filter=hofFilterForMode(hofEditor.mode==="none"?hofEditor.frame.toLowerCase():hofEditor.mode);ctx.drawImage(hofEditor.frameImage,0,0,w,h);ctx.restore();
-    if(hofEditor.mode==="custom"||hofEditor.mode==="hue"){
-        const [r,g,b]=hofHexToRgb(hofEditor.colour);ctx.save();ctx.globalAlpha=Math.min(.72,Math.max(.08,hofEditor.intensity/160));ctx.globalCompositeOperation="color";ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(0,0,w,h);ctx.restore();
+    // Original is the supplied artwork. All other modes colourise a grayscale
+    // version while preserving the artwork's luminance and transparent window.
+    if(hofEditor.mode==="none"){
+        ctx.drawImage(hofEditor.frameImage,0,0,w,h);
+    } else if(hofEditor.frameGray){
+        ctx.drawImage(hofEditor.frameGray,0,0,w,h);
+        hofModeGradient(ctx,w,h,hofEditor.mode,hofEditor.colour,hofEditor.intensity);
+    } else {
+        ctx.drawImage(hofEditor.frameImage,0,0,w,h);
     }
 }
 function initHallOfFameEditor(){
     const canvas=document.getElementById("hofCanvas");if(!canvas)return;
-    const frame=new Image();frame.onload=()=>{hofEditor.frameImage=frame;hofEditor.ready=true;renderHofCanvas();};frame.src="./kng-hof-frame.png";
+    const frame=new Image();
+    frame.onload=()=>{
+        hofEditor.frameImage=frame;
+        const gray=document.createElement("canvas");gray.width=frame.naturalWidth;gray.height=frame.naturalHeight;
+        const g=gray.getContext("2d");g.drawImage(frame,0,0);
+        const data=g.getImageData(0,0,gray.width,gray.height);for(let i=0;i<data.data.length;i+=4){const y=Math.round(.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2]);data.data[i]=data.data[i+1]=data.data[i+2]=y;}g.putImageData(data,0,0);hofEditor.frameGray=gray;hofEditor.ready=true;renderHofCanvas();
+    };
+    frame.src="./kng-hof-frame.png";
     const current=ixData.hof[0];
-    if(current?.image_url){const img=new Image();img.crossOrigin="anonymous";img.onload=()=>{hofEditor.photoImage=img;renderHofCanvas();};img.src=current.image_url;}
+    if(current){
+        hofEditor.photoX=Number(current.photo_x??0);hofEditor.photoY=Number(current.photo_y??0);hofEditor.photoZoom=Number(current.photo_zoom??1);
+        if(current.image_url){const img=new Image();img.crossOrigin="anonymous";img.onload=()=>{hofEditor.photoImage=img;renderHofCanvas();};img.src=current.image_url;}
+    }
     const hexEl=document.getElementById("hofHex"),hueEl=document.getElementById("hofHue"),intEl=document.getElementById("hofIntensity");
     const rgb=document.getElementById("hofRgb");if(rgb)rgb.textContent=hofRgbToCss(hofHexToRgb(hofEditor.colour));
     const wheel=document.getElementById("hofHueWheel");
     if(wheel){
         const c=wheel.getContext("2d"),W=wheel.width,H=wheel.height,cx=W/2,cy=H/2,r=Math.min(W,H)/2-2;
-        for(let y=0;y<H;y++)for(let x=0;x<W;x++){const dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy),idx=(y*W+x)*4;if(d>r||d<r*.32){c.clearRect(x,y,1,1);continue;}let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;const col=hofHexToRgb(hofHueToHex(Math.round(ang)));c.fillStyle=`rgb(${col[0]},${col[1]},${col[2]})`;c.fillRect(x,y,1,1);}
-        const pick=(ev)=>{const rect=wheel.getBoundingClientRect(),mx=(ev.clientX-rect.left)*W/rect.width,my=(ev.clientY-rect.top)*H/rect.height,dx=mx-cx,dy=my-cy,d=Math.hypot(dx,dy);if(d>r||d<r*.32)return;let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;hofEditor.hue=Math.round(ang);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;const h=document.getElementById("hofHue");if(h)h.value=hofEditor.hue;setHofMode("hue","Colour Wheel");setHofColour(hofHueToHex(hofEditor.hue));};
+        const img=c.createImageData(W,H);
+        for(let y=0;y<H;y++)for(let x=0;x<W;x++){const dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy),idx=(y*W+x)*4;if(d>r||d<r*.25){img.data[idx+3]=0;continue;}let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;const col=hofHexToRgb(hofHueToHex(Math.round(ang)));img.data[idx]=col[0];img.data[idx+1]=col[1];img.data[idx+2]=col[2];img.data[idx+3]=255;}c.putImageData(img,0,0);
+        const pick=(ev)=>{const rect=wheel.getBoundingClientRect(),mx=(ev.clientX-rect.left)*W/rect.width,my=(ev.clientY-rect.top)*H/rect.height,dx=mx-cx,dy=my-cy,d=Math.hypot(dx,dy);if(d>r||d<r*.25)return;let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;hofEditor.hue=Math.round(ang);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;const h=document.getElementById("hofHue");if(h)h.value=hofEditor.hue;setHofMode("hue","Colour Wheel");setHofColour(hofHueToHex(hofEditor.hue));};
         wheel.addEventListener("click",pick);wheel.addEventListener("mousemove",ev=>{if(ev.buttons===1)pick(ev);});
     }
-    hexEl?.addEventListener("change",()=>setHofColour(hexEl.value));
+    hexEl?.addEventListener("change",()=>{setHofMode("custom","Custom");setHofColour(hexEl.value);});
     hueEl?.addEventListener("input",()=>{hofEditor.hue=Number(hueEl.value);hofEditor.colour=hofHueToHex(hofEditor.hue);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;setHofMode("hue","Colour Wheel");setHofColour(hofEditor.colour);});
     intEl?.addEventListener("input",()=>{hofEditor.intensity=Number(intEl.value);const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent=`${hofEditor.intensity}%`;renderHofCanvas();});
-    document.getElementById("hofSwatch")?.addEventListener("click",()=>{const temp=document.createElement("input");temp.type="color";temp.value=hofEditor.colour;temp.oninput=()=>{setHofColour(temp.value);setHofMode("custom","Custom")};temp.click();});
+    document.getElementById("hofSwatch")?.addEventListener("click",()=>{const temp=document.createElement("input");temp.type="color";temp.value=hofEditor.colour;temp.oninput=()=>{setHofMode("custom","Custom");setHofColour(temp.value)};temp.click();});
     canvas.addEventListener("wheel",e=>{e.preventDefault();hofEditor.photoZoom=Math.max(.25,Math.min(4,hofEditor.photoZoom*(e.deltaY<0?1.08:.92)));renderHofCanvas();},{passive:false});
     canvas.addEventListener("pointerdown",e=>{if(!hofEditor.photoImage)return;hofEditor.dragging=true;hofEditor.dragStartX=e.clientX;hofEditor.dragStartY=e.clientY;hofEditor.photoStartX=hofEditor.photoX;hofEditor.photoStartY=hofEditor.photoY;canvas.setPointerCapture(e.pointerId);});
     canvas.addEventListener("pointermove",e=>{if(!hofEditor.dragging)return;const sx=canvas.width/canvas.clientWidth,sy=canvas.height/canvas.clientHeight;hofEditor.photoX=hofEditor.photoStartX+(e.clientX-hofEditor.dragStartX)*sx;hofEditor.photoY=hofEditor.photoStartY+(e.clientY-hofEditor.dragStartY)*sy;renderHofCanvas();});
@@ -3454,15 +3506,29 @@ async function saveHallOfFame(){
     const winner_name=document.getElementById("hofWinnerName")?.value.trim();if(!winner_name)return alert("Enter a winner name first.");
     let image_url=hofEditor.photo||ixData.hof[0]?.image_url||null;
     if(hofEditor.photo&&hofEditor.photo.startsWith("data:")){
-        const blob=await (await fetch(hofEditor.photo)).blob(),ext=(blob.type.split("/")[1]||"png").replace("jpeg","jpg"),path=`${currentUser.id}/${Date.now()}.${ext}`;
+        const blob=await (await fetch(hofEditor.photo)).blob(),ext=(blob.type.split("/")[1]||"png").replace("jpeg","jpg"),path=`${currentUser.id}/${Date.now()}-winner.${ext}`;
         const {error}=await supabaseClient.storage.from("kng-hall-of-fame").upload(path,blob,{upsert:false,contentType:blob.type});
         if(error)return alert(error.message);image_url=supabaseClient.storage.from("kng-hall-of-fame").getPublicUrl(path).data.publicUrl;
     }
-    const payload={winner_name,image_url,frame:hofEditor.frame,frame_colour:hofEditor.colour,frame_mode:hofEditor.mode,hue:hofEditor.hue,intensity:hofEditor.intensity,created_by:currentUser.id};
+    const canvas=document.getElementById("hofCanvas");
+    let rendered_image_url=ixData.hof[0]?.rendered_image_url||null;
+    if(canvas){
+        const pngBlob=await new Promise(r=>canvas.toBlob(r,"image/png"));
+        if(pngBlob){const path=`${currentUser.id}/${Date.now()}-hall-of-fame.png`;const {error}=await supabaseClient.storage.from("kng-hall-of-fame").upload(path,pngBlob,{upsert:false,contentType:"image/png"});if(!error)rendered_image_url=supabaseClient.storage.from("kng-hall-of-fame").getPublicUrl(path).data.publicUrl;}
+    }
+    const payload={winner_name,image_url,rendered_image_url,frame:"KNG Estate Roleplay",frame_colour:hofEditor.colour,frame_mode:hofEditor.mode,hue:hofEditor.hue,intensity:hofEditor.intensity,photo_x:Math.round(hofEditor.photoX),photo_y:Math.round(hofEditor.photoY),photo_zoom:hofEditor.photoZoom,created_by:currentUser.id};
     const {error}=await supabaseClient.from("ix_hall_of_fame").insert(payload);if(error)return alert(error.message);
     await loadInteractionData();render();
 }
-async function setDailyGoal(){ if(!canManage())return;const target=prompt('Daily point target','8');const n=Number(target);if(!Number.isFinite(n)||n<1)return;const today=formatDate(new Date());const {error}=await supabaseClient.from('ix_daily_goals').upsert({user_id:currentUser.id,goal_date:today,target_points:n,points_earned:0},{onConflict:'user_id,goal_date'});if(error)return alert(error.message);await loadInteractionData();render();}
+
+function renderDailyGoals(){
+    const today=formatDate(new Date());
+    const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
+    const earned=getTodayPointsForCurrentStaff(), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
+    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${canManage()?`<button class="header-button" onclick="setDailyGoal()">Set Target</button>`:""}</div></div>`;
+}
+
+async function setDailyGoal(){ if(!canManage())return;const target=prompt('Daily point target','8');const n=Number(target);if(!Number.isFinite(n)||n<1)return;const today=formatDate(new Date());const earned=getTodayPointsForCurrentStaff();const {error}=await supabaseClient.from('ix_daily_goals').upsert({user_id:currentUser.id,goal_date:today,target_points:n,points_earned:earned},{onConflict:'user_id,goal_date'});if(error)return alert(error.message);await loadInteractionData();render();}
 
 window.openAnnouncementModal=openAnnouncementModal;
 window.deleteAnnouncement=deleteAnnouncement;
