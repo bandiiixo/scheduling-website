@@ -43,3 +43,11 @@ CLAIM FEATURE (2026-10-30)
 - The same slot cannot be claimed twice.
 - Claimed slots display the staff member and Discord ID.
 - Added the claim RPC and event columns to the complete migration SQL.
+
+
+DISPLAY NAME + UNCLAIM PATCH
+- Added staff-editable KNG display names.
+- Claim labels no longer expose Discord IDs.
+- Added one-hour-before-start unclaim rule.
+- Added secure Supabase RPC for unclaiming only the current user's claim.
+- Added repair for older claims that displayed numeric Discord IDs.

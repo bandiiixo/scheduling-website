@@ -26,3 +26,13 @@ PRIZES & COMMANDS
 - Prize wins can be marked done.
 
 Keep index.html, supabase.js, app.js and style.css together. Do not delete the existing HOF/background assets unless you have a separate reason to remove them.
+
+
+CLAIM / DISPLAY NAME UPDATE - 30 OCT 2026
+- Staff can set their own KNG Display Name from the sidebar.
+- Claims show the display name instead of the Discord ID.
+- Discord IDs remain stored internally for identity/security.
+- Staff can unclaim their own event until one hour before its Europe/London start time.
+- Within the one-hour cutoff, the unclaim control is locked.
+- Run KNG-DISPLAY-NAME-UNCLAIM-PATCH.sql if the database already has the previous host-claim migration.
+- The complete migration in this pack also contains the same fixes.

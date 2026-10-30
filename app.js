@@ -212,7 +212,29 @@ function getDiscordIdentity() {
     const data = identity?.identity_data || {};
     const discordId = identity?.provider_id || data?.provider_id || data?.id || data?.sub || null;
     const username = data?.global_name || data?.username || currentUser?.user_metadata?.full_name || currentUser?.user_metadata?.name || currentUser?.email || "Discord user";
-    return { discordId: discordId ? String(discordId) : null, username: String(username) };
+    const displayName = String(currentUser?.user_metadata?.kng_display_name || username).trim() || username;
+    return { discordId: discordId ? String(discordId) : null, username: String(username), displayName };
+}
+
+function getKngDisplayName() {
+    return getDiscordIdentity().displayName;
+}
+
+function openProfileModal() {
+    if (!currentUser) return openLogin();
+    const current = getKngDisplayName();
+    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>My Profile</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><p class="modal-message">Choose the name other staff will see when you claim an event. Your Discord ID stays private and is only used internally.</p><form id="kngProfileForm" class="ops-form"><label>Display Name<input name="display_name" maxlength="80" value="${escapeAttribute(current)}" placeholder="Your KNG display name" required></label><button class="primary-button" type="submit">Save Display Name</button></form></div>`);
+    document.getElementById("kngProfileForm")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const name = String(new FormData(e.target).get("display_name") || "").trim();
+        if (!name) return alert("Please enter a display name.");
+        const { data, error } = await supabaseClient.auth.updateUser({ data: { kng_display_name: name } });
+        if (error) return alert(error.message);
+        currentUser = data?.user || currentUser;
+        closeModal();
+        await loadEvents();
+        render();
+    });
 }
 
 async function requestStaffAccess() {
@@ -2409,6 +2431,12 @@ window.handleModalBackdrop =
 
 window.openLogin =
     openLogin;
+window.openProfileModal =
+    openProfileModal;
+window.claimHostSlot =
+    claimHostSlot;
+window.unclaimHostSlot =
+    unclaimHostSlot;
 
 
 
@@ -2455,7 +2483,7 @@ function operationsNavHtml() {
         <div class="sidebar-access-card">
             <span class="sidebar-access-label">CURRENT ACCESS</span>
             <strong>${escapeHtml(String(getPermissionLevel()).toUpperCase())}</strong>
-            ${currentUser ? `<small>${escapeHtml(currentUser.email || "Discord account")}</small>` : `<small>Public visitor</small>`}
+            ${currentUser ? `<small class="sidebar-display-name">${escapeHtml(getKngDisplayName())}</small><small>${escapeHtml(currentUser.email || "Discord account")}</small><button class="secondary-button small profile-button" onclick="openProfileModal()">Edit Display Name</button>` : `<small>Public visitor</small>`}
         </div>
     </aside>`;
 }
@@ -2701,13 +2729,30 @@ function renderHostEventPlanner() {
         <div class="host-schedule-card"><div class="host-section-head"><div><h3>Schedule</h3><small>Every slot can still be edited after randomisation.</small></div><span class="ops-pill">${todayEvents.length} scheduled</span></div><div id="hostScheduleList" class="host-slot-list">${todayEvents.length ? todayEvents.map(e => hostRenderSlot(e)).join("") : `<div class="ops-empty">No events are scheduled for today yet.</div>`}</div></div>
         <div class="host-rules-grid"><div><b>🎲 Random</b><small>${hostEventPool().length} event choices</small></div><div><b>🎉 Manual only</b><small>Club 77 + Vanilla</small></div><div><b>🔒 Protected</b><small>Planned slots cannot be overwritten by the randomiser</small></div><div><b>✏️ Editable</b><small>You can change any slot after randomisation</small></div></div>`;
 }
+function hostEventStartDate(e) {
+    const date = String(e.event_date || "");
+    const time = String(e.start_time || "00:00").slice(0, 5);
+    return new Date(`${date}T${time}:00`);
+}
+
+function hostCanUnclaim(e) {
+    if (!currentUser || String(e.host_claimed_by || "") !== String(currentUser.id || "")) return false;
+    const start = hostEventStartDate(e).getTime();
+    if (!Number.isFinite(start)) return false;
+    return Date.now() < start - (60 * 60 * 1000);
+}
+
 function hostRenderSlot(e) {
     const source = e.host_source === "random" ? "Random" : e.host_source === "planned" ? "Planned / Protected" : "Manual / Existing";
     const locked = e.host_locked || e.host_source === "planned";
     const claimed = Boolean(e.host_claimed_by || e.host_claimed_discord);
-    const claimLabel = claimed ? `Claimed by ${e.host_claimed_name ? escapeHtml(e.host_claimed_name) : escapeHtml(e.host_claimed_discord || "Staff")}${e.host_claimed_discord ? ` · ${escapeHtml(e.host_claimed_discord)}` : ""}` : "";
+    const mine = claimed && currentUser && String(e.host_claimed_by || "") === String(currentUser.id || "");
+    const claimedDisplayName = mine ? getKngDisplayName() : (e.host_claimed_name || "Staff");
+    const claimLabel = claimed ? `Claimed by ${escapeHtml(claimedDisplayName)}` : "";
     const claimButton = currentUser && permissionRank() >= 1 && !claimed ? `<button class="primary-button small host-claim-btn" onclick="claimHostSlot('${e.id}')">🎤 Claim</button>` : "";
-    return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}${claimLabel ? ` · <span class="host-claimed">${claimLabel}</span>` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${claimButton}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`;
+    const unclaimButton = mine && hostCanUnclaim(e) ? `<button class="secondary-button small host-unclaim-btn" onclick="unclaimHostSlot('${e.id}')">↩ Unclaim</button>` : "";
+    const unclaimLocked = mine && !hostCanUnclaim(e) ? `<span class="host-unclaim-locked" title="Unclaiming closes one hour before the event starts">🔒 Locked</span>` : "";
+    return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}${claimLabel ? ` · <span class="host-claimed">${claimLabel}</span>` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${claimButton}${unclaimButton}${unclaimLocked}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`;
 }
 
 async function claimHostSlot(id) {
@@ -2715,6 +2760,17 @@ async function claimHostSlot(id) {
     const { data, error } = await supabaseClient.rpc("claim_event_host_slot", { p_event_id: id });
     if (error) return alert(error.message);
     if (data === false) return alert("That event has already been claimed by another staff member.");
+    await loadEvents();
+    render();
+}
+
+async function unclaimHostSlot(id) {
+    if (!currentUser) return;
+    const event = (allEvents || []).find(e => String(e.id) === String(id));
+    if (event && !hostCanUnclaim(event)) return alert("You can only unclaim an event more than one hour before it starts.");
+    const { data, error } = await supabaseClient.rpc("unclaim_event_host_slot", { p_event_id: id });
+    if (error) return alert(error.message);
+    if (data === false) return alert("You cannot unclaim this event.");
     await loadEvents();
     render();
 }
