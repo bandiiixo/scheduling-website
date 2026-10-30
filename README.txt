@@ -42,3 +42,10 @@ DEPLOYMENT
 3. Commit and push to GitHub so Render redeploys.
 4. Run the SQL migration in Supabase.
 5. Hard refresh the website (Ctrl+F5).
+
+LAYOUT PATCH 30 OCT 2026
+- Restored the crown mark in the top-left KNG header badge.
+- Reordered navigation into Public/Community, Staff, then Operations.
+- Removed stale Announcements/Logs navigation states.
+- Fixed the Month calendar markup to use the existing month-cell styling so dates/events render at the intended size.
+- The supplied migration already normalises legacy event types F3/BR/Meeting/Large Action to Party/Battle Royale/Community Meeting/Event.

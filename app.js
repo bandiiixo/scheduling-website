@@ -25,8 +25,8 @@ let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
 let ixData = { hof: [], goals: [], suggestions: [] };
 let rosterData = [];
 let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
-if (opsView === "logs") opsView = "schedule";
-if (ixView === "announcements") ixView = "command-dashboard";
+if (opsView === "logs" || opsView === "announcements") opsView = "schedule";
+if (ixView === "announcements" || ixView === "logs") ixView = "command-dashboard";
 let ixLoadErrors = {};
 
 
@@ -317,7 +317,7 @@ function render() {
             <header class="schedule-header">
 
                 <div class="schedule-brand">
-                    <div class="schedule-logo">K</div>
+                    <div class="schedule-logo crown-logo">♛</div>
 
                     <div>
                         <h1>KNG Entertainment</h1>
@@ -573,15 +573,15 @@ function renderMonth(container) {
 
         html += `
             <div
-                class="calendar-day${todayClass}${outsideClass}"
+                class="month-cell${todayClass}${outsideClass}"
                 onclick="handleDateClick('${dateString}')"
             >
 
-                <div class="day-number">
-                    ${dayNumber}
+                <div class="month-cell-header">
+                    <span class="month-day-number">${dayNumber}</span>
                 </div>
 
-                <div class="day-events">
+                <div class="month-events">
 
                     ${dayEvents.map(event =>
                         renderCalendarEvent(event)
@@ -2390,19 +2390,22 @@ window.openLogin =
 function operationsNavHtml() {
     const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
+        // Public / community
         ["schedule", "▦", "Schedule", 0],
         ["command-dashboard", "⌂", "Command Dashboard", 0],
+        ["event-suggestions", "✦", "Event Suggestions", 0],
         ["interactions-leaderboard", "♛", "Leaderboard", 0],
         ["hall-of-fame", "▣", "Hall of Fame", 0],
-        ["event-suggestions", "✦", "Event Suggestions", 0],
+        // Staff tools
         ["daily-goals", "◎", "Daily Goals", 1],
         ["staff-roster", "♙", "Staff Roster", 2],
         ["hungry", "🍽", "Hungry Pool", 1],
+        // Operations
         ["dashboard", "◈", "Operations Dashboard", 2],
         ["actions", "⚡", "Actions & Interactions", 2],
         ["points", "✣", "Points", 2],
-        ["security", "◉", "Security", 3],
-        ["prizes", "◇", "Prizes & Commands", 2]
+        ["prizes", "◇", "Prizes & Commands", 2],
+        ["security", "◉", "Security", 3]
     ];
     if (canApproveAccess()) items.push(["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2]);
     const rank = permissionRank();
@@ -2427,7 +2430,7 @@ function operationsNavHtml() {
 function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
     return `<header class="schedule-header ops-header">
         <div class="schedule-brand">
-            <div class="schedule-logo">K</div>
+            <div class="schedule-logo crown-logo">♛</div>
             <div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div>
         </div>
         <div class="schedule-header-actions">
@@ -2944,7 +2947,7 @@ function applyEventPreset(preset) {
 function renderAccessRestriction() {
     const timeout = currentTimeout;
     const blocked = accessBlock;
-    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo">K</div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
+    app.innerHTML = `<div class="schedule-app"><main class="restricted-screen"><div class="restricted-card"><div class="schedule-logo crown-logo">♛</div><h1>${blocked ? "Access Removed" : "Temporarily Timed Out"}</h1><p>${blocked ? `Your KNG Entertainment access has been removed from the team.` : `Your access is temporarily unavailable until ${formatOpsDateTime(timeout?.expires_at)}.`}</p><small>${escapeHtml((blocked?.reason || timeout?.reason || "Contact management."))}</small><button class="header-button" onclick="logout()">Sign Out</button></div></main></div>`;
 }
 
 function formatOpsDateTime(value) {
@@ -2984,7 +2987,7 @@ async function loadInteractionData() {
 
 function interactionHeader(title, subtitle) {
     return `<header class="schedule-header ops-header interaction-header">
-        <div class="schedule-brand"><div class="schedule-logo">K</div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
+        <div class="schedule-brand"><div class="schedule-logo crown-logo">♛</div><div><h1>${escapeHtml(title)}</h1><span>${escapeHtml(subtitle)}</span></div></div>
         <div class="schedule-header-actions">
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
