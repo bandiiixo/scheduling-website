@@ -2701,7 +2701,23 @@ function renderHostEventPlanner() {
         <div class="host-schedule-card"><div class="host-section-head"><div><h3>Schedule</h3><small>Every slot can still be edited after randomisation.</small></div><span class="ops-pill">${todayEvents.length} scheduled</span></div><div id="hostScheduleList" class="host-slot-list">${todayEvents.length ? todayEvents.map(e => hostRenderSlot(e)).join("") : `<div class="ops-empty">No events are scheduled for today yet.</div>`}</div></div>
         <div class="host-rules-grid"><div><b>🎲 Random</b><small>${hostEventPool().length} event choices</small></div><div><b>🎉 Manual only</b><small>Club 77 + Vanilla</small></div><div><b>🔒 Protected</b><small>Planned slots cannot be overwritten by the randomiser</small></div><div><b>✏️ Editable</b><small>You can change any slot after randomisation</small></div></div>`;
 }
-function hostRenderSlot(e) { const source=e.host_source === "random" ? "Random" : e.host_source === "planned" ? "Planned / Protected" : "Manual / Existing"; const locked=e.host_locked || e.host_source === "planned"; return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`; }
+function hostRenderSlot(e) {
+    const source = e.host_source === "random" ? "Random" : e.host_source === "planned" ? "Planned / Protected" : "Manual / Existing";
+    const locked = e.host_locked || e.host_source === "planned";
+    const claimed = Boolean(e.host_claimed_by || e.host_claimed_discord);
+    const claimLabel = claimed ? `Claimed by ${e.host_claimed_name ? escapeHtml(e.host_claimed_name) : escapeHtml(e.host_claimed_discord || "Staff")}${e.host_claimed_discord ? ` · ${escapeHtml(e.host_claimed_discord)}` : ""}` : "";
+    const claimButton = currentUser && permissionRank() >= 1 && !claimed ? `<button class="primary-button small host-claim-btn" onclick="claimHostSlot('${e.id}')">🎤 Claim</button>` : "";
+    return `<div class="host-slot ${locked ? "host-slot-locked" : ""}"><div class="host-slot-time">${escapeHtml(String(e.start_time||"").slice(0,5))}<small>${escapeHtml(String(e.end_time||"").slice(0,5))}</small></div><div class="host-slot-main"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(source)}${e.description ? ` · ${escapeHtml(e.description)}` : ""}${claimLabel ? ` · <span class="host-claimed">${claimLabel}</span>` : ""}</small></div><div class="host-slot-actions">${locked ? `<span class="host-lock">🔒</span>` : ""}${claimButton}${canManage() ? `<button class="secondary-button small" onclick="openHostEdit('${e.id}')">Edit</button>` : ""}</div></div>`;
+}
+
+async function claimHostSlot(id) {
+    if (!currentUser || permissionRank() < 1) return alert("You must be signed in as KNG staff to claim an event.");
+    const { data, error } = await supabaseClient.rpc("claim_event_host_slot", { p_event_id: id });
+    if (error) return alert(error.message);
+    if (data === false) return alert("That event has already been claimed by another staff member.");
+    await loadEvents();
+    render();
+}
 
 function setHostPlannerDate(value){ if(!value)return; hostPlannerDate=value; try{localStorage.setItem("kng.hostPlannerDate",value);}catch(_){} render(); }
 function toggleHostPanel(id) { const el=document.getElementById(id); if(el) el.hidden=!el.hidden; }

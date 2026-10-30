@@ -1,52 +1,28 @@
-KNG ENTERTAINMENT FULL UPDATE
+KNG ENTERTAINMENT - HOST AN EVENT FULL PACK
 
-UPLOAD:
-Replace the files in the Render/GitHub site with the files in this pack.
-Keep the whole pack together.
+This is the full KNG Entertainment app pack. Replace the matching project files with the files in this ZIP.
 
-SUPABASE:
-Before testing the new features, run:
-KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql
-in Supabase SQL Editor.
+IMPORTANT DATABASE STEP
+Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql in the Supabase SQL Editor before testing the new Host an Event or Prize features.
 
-The migration is designed to be re-runnable and includes:
-- host_source / host_locked event fields
-- planned-event support
-- three standard event prizes
-- prize win reason and completion fields
-- existing KNG Entertainment permissions and operations tables
+HOST AN EVENT
+- Hungry Pool is replaced by Host an Event.
+- Randomise Empty Slots fills only empty slots.
+- Random events never repeat directly beside themselves.
+- Club 77 and Vanilla are manual-only choices and are never selected by the randomiser.
+- Planned events can repeat daily, weekly or biweekly and protect their slots from the randomiser.
+- Every slot remains manually editable after randomisation.
+- Signed-in KNG staff get a Claim button on each slot.
+- Claim records the signed-in Discord account's Discord ID and staff name on that event.
+- A claimed slot cannot be claimed by another person.
 
-HOST AN EVENT:
-The old Hungry Pool navigation item is now Host an Event.
+PRIZES & COMMANDS
+- Prize Win form stays directly on the page.
+- Dirty Money, Dollars and Event VIP are built in.
+- Amount and item code auto-fill from the selected prize.
+- Reason is entered manually.
+- Command is generated as !additem ID CODE AMOUNT Reason.
+- Copy command is available before recording the win.
+- Prize wins can be marked done.
 
-Randomiser:
-- Select the date and time range.
-- Choose 30 or 60 minute slots.
-- Randomise Empty Slots.
-- It only fills empty slots.
-- It does not select Club 77 or Vanilla.
-- It does not place the same event directly next to itself in one run.
-
-Planned events:
-- Add Planned Event.
-- Choose one-time, daily, weekly or biweekly.
-- Planned slots are protected from randomisation.
-
-Manual events:
-- Add Event.
-- Club 77 and Vanilla are available manually.
-- Any event can be manually placed.
-- Any slot can be edited later.
-
-PRIZES:
-The Prize Win form is on the page.
-Enter in-game ID, choose the prize type, enter a reason, then copy the generated command.
-After the command is given in Discord, tick Done in the Prize Wins & Command Vault.
-
-Standard prizes:
-- Dirty Money / dinheirosujo / 500000
-- Dollars / dollars / 500000
-- Event VIP / vipevento1 / 1
-
-The application uses the existing Supabase URL/publishable key already supplied for this project.
-Do not add a service-role key to the browser.
+Keep index.html, supabase.js, app.js and style.css together. Do not delete the existing HOF/background assets unless you have a separate reason to remove them.

@@ -36,3 +36,10 @@ This pack preserves the existing KNG Entertainment app and adds:
 IMPORTANT:
 Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql once in the Supabase SQL Editor before deploying this pack.
 Do not delete the existing app assets.
+
+CLAIM FEATURE (2026-10-30)
+- Added Claim button to every Host an Event slot for signed-in KNG staff.
+- Claim records the current Discord account's Discord ID, staff name and claim time against the event.
+- The same slot cannot be claimed twice.
+- Claimed slots display the staff member and Discord ID.
+- Added the claim RPC and event columns to the complete migration SQL.

@@ -2092,3 +2092,122 @@ body {
 @media (max-width:900px){.host-event-toolbar,.host-randomiser-card{flex-direction:column}.host-toolbar-buttons,.host-randomiser-controls{width:100%;justify-content:flex-start}.host-form-grid,.host-rules-grid{grid-template-columns:1fr 1fr}.host-slot{grid-template-columns:70px 1fr}.host-slot-actions{grid-column:2;justify-content:flex-start}.prize-page-grid{grid-template-columns:1fr!important}}
 @media (max-width:600px){.host-form-grid,.host-rules-grid{grid-template-columns:1fr}.host-event-toolbar h2{font-size:21px}}
 .host-date-label{display:flex;flex-direction:column;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#8d9ab0;font-weight:700}.host-date-label input{margin-top:0}
+
+/* =========================================================
+   HOST AN EVENT - DARK FORM CONTROLS
+   Keep native date/time/select controls consistent with the KNG dark UI.
+   ========================================================= */
+.host-control-panel,
+.host-randomiser-card,
+.host-randomiser-controls,
+.host-form-grid,
+.host-date-label {
+    color-scheme: dark;
+}
+
+.host-form-grid input:not([type="checkbox"]),
+.host-form-grid select,
+.host-form-grid textarea,
+.host-randomiser-controls input,
+.host-randomiser-controls select,
+.host-date-label input {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 45, 91, .28);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(17, 23, 37, .96), rgba(8, 12, 22, .96));
+    color: #eef2f8;
+    caret-color: #ff5276;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.035), 0 5px 16px rgba(0,0,0,.12);
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease, transform .18s ease;
+}
+
+.host-form-grid input:not([type="checkbox"])::placeholder,
+.host-form-grid textarea::placeholder,
+.host-randomiser-controls input::placeholder {
+    color: #69758b;
+    opacity: 1;
+}
+
+.host-form-grid input:not([type="checkbox"]):hover,
+.host-form-grid select:hover,
+.host-form-grid textarea:hover,
+.host-randomiser-controls input:hover,
+.host-randomiser-controls select:hover,
+.host-date-label input:hover {
+    border-color: rgba(255, 45, 91, .52);
+    background: linear-gradient(180deg, rgba(20, 27, 43, .98), rgba(9, 13, 24, .98));
+}
+
+.host-form-grid input:not([type="checkbox"]):focus,
+.host-form-grid select:focus,
+.host-form-grid textarea:focus,
+.host-randomiser-controls input:focus,
+.host-randomiser-controls select:focus,
+.host-date-label input:focus {
+    border-color: rgba(255, 45, 91, .9);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 45, 91, .12), 0 8px 22px rgba(0,0,0,.2);
+    background: #0d1422;
+}
+
+.host-form-grid select,
+.host-randomiser-controls select {
+    padding-right: 38px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, #ff7895 50%),
+        linear-gradient(135deg, #ff7895 50%, transparent 50%),
+        linear-gradient(180deg, rgba(17, 23, 37, .96), rgba(8, 12, 22, .96));
+    background-position:
+        calc(100% - 17px) 18px,
+        calc(100% - 11px) 18px,
+        0 0;
+    background-size: 6px 6px, 6px 6px, 100% 100%;
+    background-repeat: no-repeat;
+}
+
+.host-form-grid select option,
+.host-randomiser-controls select option {
+    background: #0d1422;
+    color: #eef2f8;
+}
+
+.host-form-grid input[type="date"],
+.host-form-grid input[type="time"],
+.host-randomiser-controls input[type="date"],
+.host-randomiser-controls input[type="time"],
+.host-date-label input[type="date"] {
+    color-scheme: dark;
+}
+
+.host-form-grid input[type="date"]::-webkit-calendar-picker-indicator,
+.host-form-grid input[type="time"]::-webkit-calendar-picker-indicator,
+.host-randomiser-controls input[type="date"]::-webkit-calendar-picker-indicator,
+.host-randomiser-controls input[type="time"]::-webkit-calendar-picker-indicator,
+.host-date-label input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(.82) sepia(1) saturate(5) hue-rotate(305deg);
+    opacity: .9;
+    cursor: pointer;
+}
+
+.host-randomiser-controls input,
+.host-randomiser-controls select {
+    min-height: 38px;
+    width: 145px;
+    padding: 8px 11px;
+}
+
+.host-date-label input {
+    margin-top: 0;
+}
+
+@media (max-width: 900px) {
+    .host-randomiser-controls input,
+    .host-randomiser-controls select {
+        width: 100%;
+    }
+}

@@ -65,8 +65,69 @@ alter table public.events add column if not exists completed_at timestamptz;
 alter table public.events add column if not exists completed_by uuid references auth.users(id) on delete set null;
 alter table public.events add column if not exists host_source text not null default 'existing';
 alter table public.events add column if not exists host_locked boolean not null default false;
+alter table public.events add column if not exists host_claimed_by uuid references auth.users(id) on delete set null;
+alter table public.events add column if not exists host_claimed_discord text;
+alter table public.events add column if not exists host_claimed_name text;
+alter table public.events add column if not exists host_claimed_at timestamptz;
 alter table public.events drop constraint if exists events_host_source_check;
 alter table public.events add constraint events_host_source_check check (host_source in ('existing','random','manual','planned'));
+
+
+-- Event host claiming: any confirmed KNG staff member can claim one scheduled slot.
+-- The Discord ID is taken from the signed-in Discord identity and matched to staff.
+create or replace function public.claim_event_host_slot(p_event_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_discord_id text;
+  v_name text;
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in required.';
+  end if;
+
+  select i.provider_id into v_discord_id
+  from auth.identities i
+  where i.user_id = auth.uid() and i.provider = 'discord'
+  order by i.created_at desc
+  limit 1;
+
+  v_discord_id := nullif(trim(coalesce(v_discord_id, '')), '');
+  if v_discord_id is null then
+    raise exception 'No Discord account is linked to this login.';
+  end if;
+
+  select s.name into v_name
+  from public.staff s
+  where s.discord_id = v_discord_id and s.active = true
+  limit 1;
+
+  if v_name is null then
+    v_name := 'Staff';
+  end if;
+
+  update public.events
+  set host_claimed_by = auth.uid(),
+      host_claimed_discord = v_discord_id,
+      host_claimed_name = left(v_name, 120),
+      host_claimed_at = now(),
+      updated_by = auth.uid()
+  where id = p_event_id
+    and status = 'scheduled'
+    and host_claimed_by is null;
+
+  if not found then
+    return false;
+  end if;
+
+  return true;
+end;
+$$;
+
+grant execute on function public.claim_event_host_slot(uuid) to authenticated;
 
 update public.events set visibility = 'public' where visibility is null or visibility not in ('public','staff');
 update public.events set status = 'scheduled' where status is null or status not in ('scheduled','completed','cancelled');
