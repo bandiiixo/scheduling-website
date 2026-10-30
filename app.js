@@ -21,10 +21,13 @@ let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
 let opsLoadErrors = {};
-let ixView = localStorage.getItem("kng.ixView") || "";
-let ixData = { announcements: [], hof: [], goals: [] };
+let ixView = localStorage.getItem("kng.ixView") || "command-dashboard";
+let ixData = { hof: [], goals: [], suggestions: [] };
+let rosterData = [];
+let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
+if (opsView === "logs") opsView = "schedule";
+if (ixView === "announcements") ixView = "command-dashboard";
 let ixLoadErrors = {};
-let hofEditor = { frame: "Original", mode: "none", hue: 310, intensity: 100, colour: "#22D3EE", photo: null, photoX: 0, photoY: 0, photoZoom: 1, dragging: false, dragStartX: 0, dragStartY: 0, photoStartX: 0, photoStartY: 0, frameImage: null, photoImage: null, ready: false };
 
 
 /* =========================================================
@@ -44,6 +47,7 @@ async function init() {
         await loadAccessRequests();
         await loadOpsData();
         await loadInteractionData();
+        await loadRosterData();
 
         render();
 
@@ -54,6 +58,7 @@ async function init() {
             await loadAccessRequests();
             await loadOpsData();
             await loadInteractionData();
+            await loadRosterData();
             render();
         });
 
@@ -63,6 +68,7 @@ async function init() {
             await loadEvents();
             if (opsView !== "schedule") await loadOpsData();
             await loadInteractionData();
+            await loadRosterData();
             render();
         }, 60000);
 
@@ -294,22 +300,12 @@ function availableGrantLevels() {
    ========================================================= */
 
 function render() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
-    if (!currentUser) {
-        ixView = "";
-        opsView = "schedule";
-        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
-    }
-    if (accessBlock || currentTimeout) {
-        ixView = "";
-        opsView = "schedule";
-        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
-    }
-    if (ixViews.includes(ixView)) { renderInteractionView(); return; }
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
     if (accessBlock || currentTimeout) {
         renderAccessRestriction();
         return;
     }
+    if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView !== "schedule") {
         renderOperations();
         return;
@@ -908,53 +904,21 @@ function renderAgenda(container) {
    ========================================================= */
 
 function renderCalendarEvent(event) {
-
-    const colour =
-        event.event_types?.colour || "#3b82f6";
-
-    const type =
-        event.event_types?.name || "Event";
-
-    const allocated =
-        event.event_staff?.length || 0;
-
-    const required =
-        event.staff_required || 0;
-
-
-    return `
-        <div
-            class="calendar-event"
-            style="--event-colour:${colour}"
-            onclick="event.stopPropagation(); openEvent('${event.id}')"
-        >
-
-            <span class="event-time">
-                ${formatTime(event.start_time)}
-            </span>
-
-            <strong>
-                ${escapeHtml(event.title)}
-            </strong>
-
-            <span class="event-type">
-                ${escapeHtml(type)}
-            </span>
-
-            ${
-                required > 0
-                    ? `
-                        <span class="event-staff">
-                            ${allocated}/${required} staff
-                        </span>
-                      `
-                    : ""
-            }
-
-        </div>
-    `;
+    const colour = event.event_types?.colour || "#3b82f6";
+    const type = event.event_types?.name || "Event";
+    const allocated = event.event_staff?.length || 0;
+    const required = event.staff_required || 0;
+    const completed = isEventCompleted(event);
+    return `<div class="calendar-event ${completed ? 'event-completed' : ''}" style="--event-colour:${colour}" onclick="event.stopPropagation(); openEvent('${event.id}')">
+        <span class="event-time">${formatTime(event.start_time)}</span>
+        <strong>${escapeHtml(event.title)}</strong>
+        <span class="event-type">${escapeHtml(type)}</span>
+        ${event.winner_name ? `<span class="event-winner">🏆 ${escapeHtml(event.winner_name)}</span>` : ''}
+        ${Number.isFinite(Number(event.attendance_count)) && event.attendance_count !== null ? `<span class="event-attendance">👥 ${Number(event.attendance_count)}</span>` : ''}
+        ${required > 0 ? `<span class="event-staff">${allocated}/${required} staff</span>` : ""}
+        ${completed ? `<span class="event-status">COMPLETED</span>` : ''}
+    </div>`;
 }
-
 
 function renderAgendaEvent(event) {
 
@@ -1101,7 +1065,7 @@ function openCreateEventModal(date = null, hour = null) {
                             <button type="button" class="quick-event" onclick="applyEventPreset('Party')">PARTY</button>
                             <button type="button" class="quick-event" onclick="applyEventPreset('Event')">EVENT</button>
                             <button type="button" class="quick-event" onclick="applyEventPreset('Battle Royale')">BATTLE ROYALE</button>
-                            <button type="button" class="quick-event" onclick="applyEventPreset('Community Meeting')">COMMUNITY MEETING</button>
+                            ${isAdmin()?`<button type="button" class="quick-event" onclick="applyEventPreset('Community Meeting')">COMMUNITY MEETING</button>`:""}
                         </div>
                     </div>
 
@@ -1309,6 +1273,7 @@ async function createEvent(event) {
     const repeatUntil = document.getElementById("eventRepeatUntil")?.value || eventDate;
     const selectedType = eventTypes.find(t => t.id === eventTypeId);
     const isMeeting = ["staff meeting", "community meeting"].includes(String(selectedType?.name || "").toLowerCase());
+    if (isMeeting && !isAdmin()) { errorBox.textContent = "Only Managers and Directors can create meetings."; return; }
     if (isMeeting) visibility = "staff";
 
 
@@ -1363,255 +1328,58 @@ async function createEvent(event) {
    EVENT DETAILS
    ========================================================= */
 
-function openEvent(eventId) {
-
-    const event =
-        events.find(item => item.id === eventId);
-
+async function openEvent(eventId) {
+    const event = events.find(item => item.id === eventId);
     if (!event) return;
-
     selectedEvent = event;
-
-
-    const colour =
-        event.event_types?.colour || "#3b82f6";
-
-
-    const allocations =
-        event.event_staff || [];
-
-
-    showModal(`
-        <div class="modal event-detail-modal">
-
-            <div
-                class="event-detail-accent"
-                style="background:${colour}">
-            </div>
-
-
-            <div class="modal-header">
-
-                <div>
-
-                    <span class="modal-eyebrow">
-                        ${escapeHtml(
-                            event.event_types?.name || "Event"
-                        )}
-                    </span>
-
-                    <h2>
-                        ${escapeHtml(event.title)}
-                    </h2>
-
-                </div>
-
-
-                <button
-                    class="modal-close"
-                    onclick="closeModal()">
-                    ×
-                </button>
-
-            </div>
-
-
-            <div class="event-detail-content">
-
-                <div class="event-detail-row">
-                    <span>📅</span>
-
-                    <div>
-                        <strong>Date</strong>
-
-                        <p>
-                            ${formatDisplayDate(
-                                event.event_date
-                            )}
-                        </p>
-                    </div>
-                </div>
-
-
-                <div class="event-detail-row">
-                    <span>⏰</span>
-
-                    <div>
-                        <strong>Time</strong>
-
-                        <p>
-                            ${formatTime(event.start_time)}
-                            -
-                            ${formatTime(event.end_time)}
-                        </p>
-                    </div>
-                </div>
-
-
-                ${
-                    event.location
-                        ? `
-                            <div class="event-detail-row">
-                                <span>📍</span>
-
-                                <div>
-                                    <strong>Location</strong>
-                                    <p>
-                                        ${escapeHtml(
-                                            event.location
-                                        )}
-                                    </p>
-                                </div>
-                            </div>
-                          `
-                        : ""
-                }
-
-
-                ${
-                    event.description
-                        ? `
-                            <div class="event-detail-description">
-                                <strong>Description</strong>
-
-                                <p>
-                                    ${escapeHtml(
-                                        event.description
-                                    ).replace(
-                                        /\n/g,
-                                        "<br>"
-                                    )}
-                                </p>
-                            </div>
-                          `
-                        : ""
-                }
-
-
-                ${
-                    event.staff_required > 0
-                        ? `
-                            <div class="staff-section">
-
-                                <div class="staff-section-header">
-
-                                    <div>
-                                        <strong>
-                                            Staff Allocation
-                                        </strong>
-
-                                        <span>
-                                            ${allocations.length}
-                                            /
-                                            ${event.staff_required}
-                                        </span>
-                                    </div>
-
-                                    ${
-                                        canManage()
-                                            ? `
-                                                <button
-                                                    class="secondary-button"
-                                                    onclick="openStaffAllocation('${event.id}')">
-                                                    Manage Staff
-                                                </button>
-                                              `
-                                            : ""
-                                    }
-
-                                </div>
-
-
-                                ${
-                                    allocations.length
-                                        ? `
-                                            <div class="allocated-staff">
-                                                ${allocations.map(
-                                                    allocation => `
-                                                        <div class="staff-chip">
-                                                            <span>
-                                                                ${escapeHtml(
-                                                                    allocation.staff?.name
-                                                                    || "Unknown"
-                                                                )}
-                                                            </span>
-
-                                                            ${
-                                                                allocation.role
-                                                                    ? `<small>
-                                                                        ${escapeHtml(
-                                                                            allocation.role
-                                                                        )}
-                                                                       </small>`
-                                                                    : ""
-                                                            }
-                                                        </div>
-                                                    `
-                                                ).join("")}
-                                            </div>
-                                          `
-                                        : `
-                                            <div class="no-staff">
-                                                No staff allocated yet.
-                                            </div>
-                                          `
-                                }
-
-                            </div>
-                          `
-                        : ""
-                }
-
-            </div>
-
-
-            ${
-                canManage()
-                    ? `
-                        <div class="modal-footer">
-
-                            <button
-                                class="danger-button"
-                                onclick="deleteEvent('${event.id}')">
-                                Delete Event
-                            </button>
-
-                            <div class="modal-footer-right">
-
-                                ${event.status === "completed" ? `<span class="ops-pill">Completed</span>` : `<button class="secondary-button" onclick="markEventComplete('${event.id}')">Mark Complete</button>`}
-
-                                <button
-                                    class="secondary-button"
-                                    onclick="openEditEvent('${event.id}')">
-                                    Edit Event
-                                </button>
-
-                                <button
-                                    class="primary-button"
-                                    onclick="closeModal()">
-                                    Done
-                                </button>
-
-                            </div>
-
-                        </div>
-                      `
-                    : `
-                        <div class="modal-footer">
-                            <button
-                                class="primary-button"
-                                onclick="closeModal()">
-                                Close
-                            </button>
-                        </div>
-                      `
-            }
-
+    const feedbackResult = await supabaseClient.from("event_feedback").select("display_name,rating,feedback,created_at").eq("event_id", event.id).order("created_at", {ascending:false}).limit(5);
+    const suggestionResult = await supabaseClient.from("event_suggestions").select("display_name,suggestion,created_at,status").eq("event_id", event.id).order("created_at", {ascending:false}).limit(5);
+    const feedbackRows = feedbackResult.error ? [] : (feedbackResult.data || []);
+    const suggestionRows = suggestionResult.error ? [] : (suggestionResult.data || []);
+    const feedbackAverage = feedbackRows.length ? (feedbackRows.reduce((n,r)=>n+Number(r.rating||0),0)/feedbackRows.length).toFixed(1) : null;
+    const colour = event.event_types?.colour || "#3b82f6";
+    const allocations = event.event_staff || [];
+    const passed = new Date(`${event.event_date}T${event.end_time}`) <= new Date();
+    const canComplete = canManage() && !event.is_meeting && passed && !isEventCompleted(event);
+    const completedLabel = isEventCompleted(event) ? `<div class="event-completion-summary"><b>Completed</b>${event.attendance_count !== null && event.attendance_count !== undefined ? `<span>Attendance: ${Number(event.attendance_count)}</span>` : ''}${event.winner_name ? `<span>Winner: ${escapeHtml(event.winner_name)}</span>` : ''}</div>` : '';
+    showModal(`<div class="modal event-detail-modal">
+        <div class="event-detail-accent" style="background:${colour}"></div>
+        <div class="modal-header"><div><span class="modal-eyebrow">${escapeHtml(event.event_types?.name || "Event")}</span><h2>${escapeHtml(event.title)}</h2></div><button class="modal-close" onclick="closeModal()">×</button></div>
+        <div class="event-detail-content">
+            <div class="event-detail-row"><span>📅</span><div><strong>Date</strong><p>${formatDisplayDate(event.event_date)}</p></div></div>
+            <div class="event-detail-row"><span>⏰</span><div><strong>Time</strong><p>${formatTime(event.start_time)} - ${formatTime(event.end_time)}</p></div></div>
+            ${event.location ? `<div class="event-detail-row"><span>📍</span><div><strong>Location</strong><p>${escapeHtml(event.location)}</p></div></div>` : ''}
+            ${event.description ? `<div class="event-detail-description"><strong>Description</strong><p>${escapeHtml(event.description).replace(/\n/g,'<br>')}</p></div>` : ''}
+            ${event.winner_name ? `<div class="event-detail-description"><strong>🏆 Winner</strong><p>${escapeHtml(event.winner_name)}</p></div>` : ''}
+            ${event.attendance_count !== null && event.attendance_count !== undefined ? `<div class="event-detail-description"><strong>👥 Attendance</strong><p>${Number(event.attendance_count)} people attended</p></div>` : ''}
+            ${event.staff_required > 0 ? `<div class="staff-section"><div class="staff-section-header"><div><strong>Staff Allocation</strong><span>${allocations.length}/${event.staff_required}</span></div>${canManage()?`<button class="secondary-button" onclick="openStaffAllocation('${event.id}')">Manage Staff</button>`:''}</div>${allocations.length?`<div class="allocated-staff">${allocations.map(a=>`<div class="staff-chip"><span>${escapeHtml(a.staff?.name||"Unknown")}</span>${a.role?`<small>${escapeHtml(a.role)}</small>`:''}</div>`).join('')}</div>`:`<div class="no-staff">No staff allocated yet.</div>`}</div>`:''}
+            ${completedLabel}
+            <div class="event-feedback-box"><div class="feedback-actions"><button class="secondary-button" onclick="openEventFeedbackModal('${event.id}','feedback')">Give Feedback</button><button class="secondary-button" onclick="openEventFeedbackModal('${event.id}','suggestion')">Suggest an Improvement</button></div>${feedbackAverage?`<div class="feedback-summary"><b>Public feedback: ${feedbackAverage}/5</b><small>Showing ${feedbackRows.length} recent response${feedbackRows.length===1?'':'s'}</small></div>`:''}${feedbackRows.length?`<div class="public-feedback-list">${feedbackRows.map(r=>`<article><b>${escapeHtml(r.display_name||'Anonymous')} · ${'★'.repeat(Number(r.rating||0))}</b><p>${escapeHtml(r.feedback||'')}</p></article>`).join('')}</div>`:''}${suggestionRows.length?`<div class="public-feedback-list"><b>Recent suggestions</b>${suggestionRows.map(r=>`<article><b>${escapeHtml(r.display_name||'Anonymous')}</b><p>${escapeHtml(r.suggestion||'')}</p></article>`).join('')}</div>`:''}</div>
         </div>
-    `);
+        ${canManage()?`<div class="modal-footer"><button class="danger-button" onclick="deleteEvent('${event.id}')">Delete Event</button><div class="modal-footer-right">${canComplete?`<button class="primary-button" onclick="openCompleteEventModal('${event.id}')">Complete Event</button>`:`${isEventCompleted(event)?`<span class="ops-pill">Completed</span>`:''}`}<button class="secondary-button" onclick="openEditEvent('${event.id}')">Edit Event</button><button class="primary-button" onclick="closeModal()">Done</button></div></div>`:`<div class="modal-footer"><button class="primary-button" onclick="closeModal()">Close</button></div>`}
+    </div>`);
 }
 
+function openCompleteEventModal(eventId){
+    if(!canManage()) return;
+    const event=events.find(e=>e.id===eventId);
+    if(!event || event.is_meeting || isEventCompleted(event)) return;
+    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">Event completion</span><h2>Complete ${escapeHtml(event.title)}</h2><small>Record attendance and the winner before confirming.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="completeEventForm"><label>How many people showed up?<input name="attendance_count" type="number" min="0" max="100000" required></label><label>Winner name<input name="winner_name" maxlength="120" placeholder="Winner name" required></label><label>Completion notes<textarea name="completion_notes" rows="4" maxlength="1000" placeholder="Optional notes"></textarea></label><button class="primary-button">Confirm Completed Event</button></form></div>`);
+    document.getElementById('completeEventForm')?.addEventListener('submit',e=>completeEvent(e,eventId));
+}
 
+async function completeEvent(e,eventId){
+    e.preventDefault(); if(!canManage()) return;
+    const data=Object.fromEntries(new FormData(e.target).entries());
+    const attendance=Math.max(0,Number(data.attendance_count)||0);
+    const {error}=await supabaseClient.from('events').update({status:'completed',attendance_count:attendance,winner_name:String(data.winner_name||'').trim()||null,completion_notes:String(data.completion_notes||'').trim()||null,completed_at:new Date().toISOString(),completed_by:currentUser?.id||null,updated_by:currentUser?.id||null}).eq('id',eventId);
+    if(error) return alert(error.message);
+    await writeAudit('event.completed',{event_id:eventId,attendance_count:attendance,winner_name:String(data.winner_name||'').trim()});
+    closeModal(); await loadEvents(); await loadInteractionData(); render();
+}
+
+/* =========================================================
+   EDIT EVENT
 /* =========================================================
    EDIT EVENT
    ========================================================= */
@@ -1836,10 +1604,7 @@ async function updateEvent(formEvent, eventId) {
         document.getElementById(
             "editEventDescription"
         ).value.trim();
-    let visibility = document.getElementById("editEventVisibility")?.value || "public";
-    const selectedType = eventTypes.find(t => t.id === eventTypeId);
-    const isMeeting = event.is_meeting || ["staff meeting","community meeting"].includes(String(selectedType?.name || "").toLowerCase());
-    if (isMeeting) visibility = "staff";
+    const visibility = document.getElementById("editEventVisibility")?.value || "public";
 
 
     if (endTime <= startTime) {
@@ -1863,7 +1628,6 @@ async function updateEvent(formEvent, eventId) {
             description: description || null,
             staff_required: staffRequired,
             visibility,
-            is_meeting: isMeeting,
             updated_by: currentUser?.id || null
         })
         .eq("id", eventId);
@@ -1890,13 +1654,7 @@ async function updateEvent(formEvent, eventId) {
    DELETE EVENT
    ========================================================= */
 
-async function markEventComplete(eventId) {
-    if (!canManage()) return;
-    const { error } = await supabaseClient.from("events").update({ status: "completed", updated_by: currentUser?.id || null }).eq("id", eventId);
-    if (error) return alert(error.message);
-    await writeAudit("event.completed", { event_id: eventId });
-    closeModal(); await loadEvents(); render();
-}
+async function markEventComplete(eventId) { openCompleteEventModal(eventId); }
 
 async function deleteEvent(eventId) {
 
@@ -2420,9 +2178,6 @@ async function logout() {
 
     currentUser = null;
     currentAccess = null;
-    ixView = "";
-    opsView = "schedule";
-    try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
 
     render();
 }
@@ -2591,6 +2346,8 @@ window.openCreateEventModal =
 window.openCreateMeetingModal = openCreateMeetingModal;
 window.createMeeting = createMeeting;
 window.markEventComplete = markEventComplete;
+window.openCompleteEventModal = openCompleteEventModal;
+window.completeEvent = completeEvent;
 
 window.createEvent = createEvent;
 
@@ -2619,13 +2376,6 @@ window.handleModalBackdrop =
 
 window.openLogin =
     openLogin;
-window.logout = logout;
-window.switchOpsView = switchOpsView;
-window.copyHallOfFame = copyHallOfFame;
-window.downloadHallOfFame = downloadHallOfFame;
-window.setHofMode = setHofMode;
-window.setHofColour = setHofColour;
-window.resetHofColour = resetHofColour;
 
 
 
@@ -2641,17 +2391,16 @@ function operationsNavHtml() {
     const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
         ["schedule", "▦", "Schedule", 0],
-        ["command-dashboard", "⌂", "Command Dashboard", 1],
-        ["interactions-leaderboard", "♛", "Leaderboard", 1],
-        ["announcements", "✦", "Announcements", 1],
-        ["hall-of-fame", "▣", "Hall of Fame", 1],
+        ["command-dashboard", "⌂", "Command Dashboard", 0],
+        ["interactions-leaderboard", "♛", "Leaderboard", 0],
+        ["hall-of-fame", "▣", "Hall of Fame", 0],
+        ["event-suggestions", "✦", "Event Suggestions", 0],
         ["daily-goals", "◎", "Daily Goals", 1],
-        ["staff-roster", "♙", "Staff Roster", 1],
+        ["staff-roster", "♙", "Staff Roster", 2],
         ["hungry", "🍽", "Hungry Pool", 1],
         ["dashboard", "◈", "Operations Dashboard", 2],
         ["actions", "⚡", "Actions & Interactions", 2],
         ["points", "✣", "Points", 2],
-        ["logs", "◎", "Logs", 2],
         ["security", "◉", "Security", 3],
         ["prizes", "◇", "Prizes & Commands", 2]
     ];
@@ -2690,7 +2439,9 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
 }
 
 async function switchOpsView(view) {
-    if (view !== "schedule" && !currentUser) {
+    const publicViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "event-suggestions"];
+    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions"];
+    if (view !== "schedule" && !currentUser && !publicViews.includes(view)) {
         showLoginMessage();
         return;
     }
@@ -2698,24 +2449,19 @@ async function switchOpsView(view) {
         showLoginMessage();
         return;
     }
-    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
     if (ixViews.includes(view)) {
         ixView = view;
-        opsView = "";
-        try {
-            localStorage.setItem("kng.ixView", view);
-            localStorage.setItem("kng.opsView", "");
-        } catch (_) {}
-        await Promise.all([loadInteractionData(), loadOpsData()]);
+        opsView = "schedule";
+        try { localStorage.setItem("kng.ixView", view); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
+        if (view === "staff-roster") await loadRosterData();
+        await loadInteractionData();
         render();
         return;
     }
-    ixView = "";
     opsView = view;
-    try {
-        localStorage.removeItem("kng.ixView");
-        localStorage.setItem("kng.opsView", view);
-    } catch (_) {}
+    ixView = "";
+    if (view === "schedule") { try { localStorage.removeItem("kng.ixView"); } catch (_) {} }
+    try { localStorage.setItem("kng.opsView", view); } catch (_) {}
     if (view !== "schedule") await loadOpsData();
     render();
 }
@@ -2748,6 +2494,8 @@ async function loadOpsData() {
         loadOpsTable("blocks", () => supabaseClient.from("ops_access_blocks").select("*").eq("active", true).order("created_at", { ascending: false }).limit(250))
     ]);
     ops = { tracker, points, hungry, reductions, audit, security, prizes, helpers, prizeWins, timeouts, blocks };
+    const settingsResult = await loadOpsTable("security_settings", () => supabaseClient.from("ops_security_settings").select("*").eq("id", 1).maybeSingle());
+    crashoutSettings = { max_removals: Number(settingsResult?.max_removals || 3), window_minutes: Number(settingsResult?.window_minutes || 60), timeout_minutes: Number(settingsResult?.timeout_minutes || 30) };
 }
 
 function opsCard(title, body, extra="") {
@@ -2757,11 +2505,11 @@ function opsCard(title, body, extra="") {
 function opsErrorNotice(name) {
     const err = opsLoadErrors[name];
     if (!err) return "";
-    return `<div class="ops-notice warning">${escapeHtml(name)} could not be loaded. <small>${escapeHtml(err)}</small></div>`;
+    return `<div class="ops-notice warning">${escapeHtml(name)} is not connected yet. Run <code>kng_schedule_operations.sql</code> in Supabase. <small>${escapeHtml(err)}</small></div>`;
 }
 
 function renderOperations() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","announcements","hall-of-fame","daily-goals","staff-roster"];
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
     if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView === "schedule") { render(); return; }
     if (opsView === "access" && !canApproveAccess()) { showLoginMessage(); return; }
@@ -2769,7 +2517,6 @@ function renderOperations() {
         dashboard: ["KNG Entertainment Dashboard", "Events, completions and staff operations"],
         "command-dashboard": ["Command Dashboard", "KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard": ["Leaderboard", "Staff activity, events and points"],
-        announcements: ["Announcements", "Updates for the KNG community"],
         "hall-of-fame": ["Hall of Fame", "Winner frames and event recognition"],
         "daily-goals": ["Daily Goals", "Track your interaction target"],
         "staff-roster": ["Staff Roster", "Current KNG Entertainment staff"],
@@ -2778,7 +2525,6 @@ function renderOperations() {
         points: ["Points", "Staff points, adjustments and leaderboard"],
         hungry: ["Hungry Pool", "Open operational slots and availability"],
         reductions: ["Reductions", "Track staff reductions and reasons"],
-        logs: ["Logs", "Audit trail of operational changes"],
         security: ["Security", "Security events and audit visibility"],
         prizes: ["Prizes & Commands", "Prize wins and ready-to-copy commands"],
         helpers: ["Helpers", "Assign additional staff helpers to events"],
@@ -2803,10 +2549,10 @@ function renderOpsViewHtml() {
         case "dashboard": return renderOpsDashboard();
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
-        case "announcements": return renderAnnouncements();
         case "hall-of-fame": return renderHallOfFame();
         case "daily-goals": return renderDailyGoals();
         case "staff-roster": return renderStaffRoster();
+        case "event-suggestions": return renderEventSuggestions();
         case "actions": return renderOpsActionsHub();
         case "tracker": return renderOpsTracker();
         case "points": return renderOpsPoints();
@@ -2859,7 +2605,6 @@ function renderOpsActionsHub() {
         ${opsCard("Quick actions", `<div class="action-hub-grid">
             <button class="hub-action" onclick="openCreateEventModal()"><b>Create Event</b><small>Party, Event, Battle Royale or Community Meeting</small></button>
             <button class="hub-action" onclick="openPrizeWinModal()"><b>Prize Win</b><small>Record a winner and generate their command</small></button>
-            <button class="hub-action" onclick="switchOpsView('logs')"><b>Log Events</b><small>See every operational change</small></button>
             <button class="hub-action" onclick="switchOpsView('security')"><b>Security</b><small>Timeout or kick off multiple users</small></button>
         </div>`)}
     </div>`;
@@ -2891,7 +2636,7 @@ function renderOpsHungry() {
             ${canManage() ? opsCard("Add to hungry pool", `<form id="hungryForm" class="ops-form"><input name="event_date" type="date" value="${formatDate(new Date())}" required><input name="event_time" type="time" required><input name="title" maxlength="120" placeholder="Slot title" required><input name="department" maxlength="80" placeholder="Department"><textarea name="notes" rows="3" placeholder="Notes"></textarea><button class="primary-button">Add entry</button></form><small>Staff can claim an open slot. It is only completed when someone marks it complete.</small>`) : ""}
             ${opsCard("Hungry Pool", openEntries.length ? `<div class="ops-list">${openEntries.map(x=>{
                 const claimed = x.status === "claimed";
-                const mine = x.claimed_by && currentUser && String(x.claimed_by) === String(currentUser.id);
+                const mine = x.claimed_by && currentUser && x.claimed_by === currentUser.id;
                 return `<div class="ops-row"><div><b>${escapeHtml(x.title)}</b><small>${escapeHtml(x.event_date)} · ${escapeHtml(x.event_time || "")} · ${escapeHtml(x.department || "")}</small>${x.notes ? `<small>${escapeHtml(x.notes)}</small>` : ""}${claimed ? `<small><strong>Claimed by ${escapeHtml(x.claimed_by_name || "Staff member")}</strong></small>` : `<small><span class="ops-pill">Open</span></small>`}</div><div class="ops-row-actions">${!claimed && currentUser && permissionRank() >= 1 ? `<button class="primary-button small ops-claim-hungry" data-id="${x.id}">Claim</button>` : ""}${mine ? `<button class="secondary-button small ops-unclaim-hungry" data-id="${x.id}">Unclaim</button>` : ""}${(mine || canManage()) && claimed ? `<button class="primary-button small ops-complete-hungry" data-id="${x.id}">Mark Complete</button>` : ""}${canManage() ? `<button class="danger-button small ops-delete-hungry" data-id="${x.id}">Remove</button>` : ""}</div></div>`;
             }).join("")}</div>` : `<div class="ops-empty">The pool is empty.</div>`)}
         </div>
@@ -2915,8 +2660,9 @@ function renderOpsSecurity() {
     const combined = [...ops.security.map(x=>({...x,_kind:"Security"})), ...ops.audit.map(x=>({...x,_kind:"Audit"}))].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
     return `${opsErrorNotice("security")}
         <div class="ops-grid-two">
-            ${canManage() ? opsCard("Crashout timeout", `<form id="timeoutForm" class="ops-form"><textarea name="emails" rows="5" placeholder="user1@example.com\nuser2@example.com\nuser3@example.com" required></textarea><input name="minutes" type="number" min="1" max="10080" value="30" required><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Timeout everyone</button><small>Multiple emails can be supplied, one per line. Access is automatically restored after the timeout expires.</small></form>`) : ""}
-            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Kick off &amp; block access</button><small>This blocks website access for the supplied accounts until a manager removes the block.</small></form>`) : ""}
+            ${canManage() ? opsCard("Crashout timeout", `<form id="timeoutForm" class="ops-form"><textarea name="emails" rows="5" placeholder="user1@example.com\nuser2@example.com\nuser3@example.com" required></textarea><input name="minutes" type="number" min="1" max="10080" value="30" required><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Timeout everyone</button><small>Manual timeout. Automatic crashout protection is ${Number(crashoutSettings.max_removals)} removals in ${Number(crashoutSettings.window_minutes)} minutes, then ${Number(crashoutSettings.timeout_minutes)} minutes timed out.</small></form>`) : ""}
+            ${canManage() ? opsCard("Kick off / remove from team", `<form id="blockForm" class="ops-form"><textarea name="emails" rows="5" placeholder="staff@example.com\nformerstaff@example.com" required></textarea><input name="reason" maxlength="200" placeholder="Reason" required><button class="danger-button">Kick off &amp; block access</button><small>Crashout protection stops an actor exceeding the configured removal limit.</small></form>`) : ""}
+            ${isDirector() ? opsCard("Crashout protection settings", `<form id="crashoutSettingsForm" class="ops-form"><label>Maximum removals<input name="max_removals" type="number" min="1" max="50" value="${Number(crashoutSettings.max_removals)}" required></label><label>Window (minutes)<input name="window_minutes" type="number" min="1" max="1440" value="${Number(crashoutSettings.window_minutes)}" required></label><label>Timeout (minutes)<input name="timeout_minutes" type="number" min="1" max="10080" value="${Number(crashoutSettings.timeout_minutes)}" required></label><button class="primary-button">Save Crashout Limit</button></form>`) : ""}
         </div>
         ${opsCard("Active timeouts", (ops.timeouts||[]).length ? `<div class="ops-list">${ops.timeouts.filter(t=>new Date(t.expires_at)>new Date()).map(t=>`<div class="ops-row"><div><b>${escapeHtml(t.email)}</b><small>${escapeHtml(t.reason||"")} · until ${formatOpsDateTime(t.expires_at)}</small></div><span class="ops-pill">Timed out</span></div>`).join("")}</div>` : `<div class="ops-empty">No active timeouts.</div>`)}
         ${opsCard("Blocked accounts", (ops.blocks||[]).length ? `<div class="ops-list">${ops.blocks.map(b=>`<div class="ops-row"><div><b>${escapeHtml(b.email)}</b><small>${escapeHtml(b.reason||"")} · ${formatOpsDateTime(b.created_at)}</small></div><button class="secondary-button unblock-account" data-email="${escapeAttribute(b.email)}">Unblock</button></div>`).join("")}</div>` : `<div class="ops-empty">No blocked accounts.</div>`)}
@@ -2971,6 +2717,7 @@ function bindOpsHandlers() {
     document.getElementById("helperForm")?.addEventListener("submit", submitHelper);
     document.getElementById("timeoutForm")?.addEventListener("submit", submitTimeout);
     document.getElementById("blockForm")?.addEventListener("submit", submitBlock);
+    document.getElementById("crashoutSettingsForm")?.addEventListener("submit", submitCrashoutSettings);
     document.querySelectorAll(".copy-command").forEach(btn => btn.addEventListener("click", () => copyCommand(btn.dataset.command, btn)));
     document.querySelectorAll(".unblock-account").forEach(btn => btn.addEventListener("click", () => unblockAccount(btn.dataset.email)));
     document.querySelectorAll(".ops-delete-hungry").forEach(btn => btn.addEventListener("click", () => deleteHungry(btn.dataset.id)));
@@ -3062,6 +2809,17 @@ async function submitTimeout(e) {
     await loadOpsData(); render();
 }
 
+async function submitCrashoutSettings(e) {
+    e.preventDefault();
+    if (!isDirector()) return;
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    const payload = { id: 1, max_removals: Math.max(1, Math.min(50, Number(data.max_removals)||3)), window_minutes: Math.max(1, Math.min(1440, Number(data.window_minutes)||60)), timeout_minutes: Math.max(1, Math.min(10080, Number(data.timeout_minutes)||30)), updated_by: currentUser.id };
+    const { error } = await supabaseClient.from('ops_security_settings').upsert(payload, { onConflict: 'id' });
+    if (error) return alert(error.message);
+    crashoutSettings = payload;
+    await loadOpsData(); render();
+}
+
 async function submitBlock(e) {
     e.preventDefault();
     if (!canManage()) return;
@@ -3069,6 +2827,22 @@ async function submitBlock(e) {
     const emails = String(data.get("emails") || "").split(/\s*[\n,;]\s*/).map(x=>x.trim().toLowerCase()).filter(Boolean);
     const reason = String(data.get("reason") || "").trim();
     if (!emails.length) return;
+    const windowStart = new Date(Date.now() - Number(crashoutSettings.window_minutes || 60) * 60000).toISOString();
+    const { count } = await supabaseClient.from('ops_security').select('id', { count: 'exact', head: true }).eq('actor_id', currentUser.id).eq('event_type', 'team.removed').gte('created_at', windowStart);
+    const currentCount = Number(count || 0);
+    const limit = Number(crashoutSettings.max_removals || 3);
+    if (currentCount + emails.length > limit) {
+        const actorEmail = String(currentUser.email || '').toLowerCase();
+        if (actorEmail) {
+            const expires_at = new Date(Date.now() + Number(crashoutSettings.timeout_minutes || 30) * 60000).toISOString();
+            await supabaseClient.from('ops_timeouts').insert({ email: actorEmail, expires_at, reason: `Crashout protection: ${currentCount + emails.length} removals attempted within ${crashoutSettings.window_minutes} minutes`, created_by: currentUser.id });
+            await supabaseClient.from('ops_security').insert({ actor_id: currentUser.id, actor_name: currentUser.email || 'Staff', event_type: 'crashout.timeout', severity: 'critical', details: { attempted: emails.length, previous: currentCount, limit, window_minutes: crashoutSettings.window_minutes, timeout_minutes: crashoutSettings.timeout_minutes } });
+            await writeAudit('security.crashout_timeout', { attempted: emails.length, previous: currentCount, limit });
+            await loadAccess(); await loadOpsData(); render();
+            return alert(`Crashout protection triggered. You reached the limit of ${limit} removals in ${crashoutSettings.window_minutes} minutes. You have been timed out for ${crashoutSettings.timeout_minutes} minutes.`);
+        }
+        return alert(`Crashout protection blocked this action. Limit: ${limit} removals in ${crashoutSettings.window_minutes} minutes.`);
+    }
     const rows = emails.map(email => ({ email, reason, active: true, created_by: currentUser.id }));
     const { error } = await supabaseClient.from("ops_access_blocks").upsert(rows, { onConflict: "email" });
     if (error) return alert(error.message);
@@ -3186,6 +2960,7 @@ window.approveAccessRequest = approveAccessRequest;
 window.rejectAccessRequest = rejectAccessRequest;
 window.openPrizeWinModal = openPrizeWinModal;
 window.copyCommand = copyCommand;
+window.submitCrashoutSettings = submitCrashoutSettings;
 
 
 
@@ -3196,13 +2971,15 @@ window.copyCommand = copyCommand;
    ========================================================= */
 
 async function loadInteractionData() {
-    if (!currentUser) return;
-    const results = await Promise.all([
-        loadOpsTable("ix_announcements", () => supabaseClient.from("ix_announcements").select("*").order("created_at", {ascending:false}).limit(100)),
+    const [hof, suggestions] = await Promise.all([
         loadOpsTable("ix_hall_of_fame", () => supabaseClient.from("ix_hall_of_fame").select("*").order("created_at", {ascending:false}).limit(100)),
-        loadOpsTable("ix_daily_goals", () => supabaseClient.from("ix_daily_goals").select("*").eq("user_id", currentUser.id).order("goal_date", {ascending:false}).limit(30))
+        loadOpsTable("event_suggestions", () => supabaseClient.from("event_suggestions").select("*").order("created_at", {ascending:false}).limit(200))
     ]);
-    ixData = { announcements: results[0], hof: results[1], goals: results[2] };
+    let goals = [];
+    if (currentUser) {
+        goals = await loadOpsTable("ix_daily_goals", () => supabaseClient.from("ix_daily_goals").select("*").eq("user_id", currentUser.id).order("goal_date", {ascending:false}).limit(30));
+    }
+    ixData = { hof, goals, suggestions };
 }
 
 function interactionHeader(title, subtitle) {
@@ -3212,86 +2989,54 @@ function interactionHeader(title, subtitle) {
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
             ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
-            <button class="header-button" onclick="logout()">Logout</button><button class="header-button" onclick="goToday()">Today</button>
+            ${currentUser ? `<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}<button class="header-button" onclick="goToday()">Today</button>
         </div>
     </header>`;
 }
 
 function renderInteractionView() {
-    if (!currentUser) {
-        ixView = "";
-        opsView = "schedule";
-        try { localStorage.removeItem("kng.ixView"); localStorage.setItem("kng.opsView", "schedule"); } catch (_) {}
-        render();
-        return;
-    }
+    const publicViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "event-suggestions"];
+    if (!currentUser && !publicViews.includes(ixView)) { showLoginMessage(); return; }
     const titles = {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
-        announcements:["Announcements","Updates for the KNG community"],
         "hall-of-fame":["Hall of Fame","Winner frames and event recognition"],
         "daily-goals":["Daily Goals","Track your interaction target"],
-        "staff-roster":["Staff Roster","Current KNG Entertainment staff"]
+        "staff-roster":["Staff Roster","Current KNG Entertainment staff"],
+        "event-suggestions":["Event Suggestions","Public ideas and feedback for future events"]
     };
     const [title,subtitle]=titles[ixView] || titles["command-dashboard"];
     app.innerHTML=`<div class="schedule-app operations-app ix-integration-app">${interactionHeader(title,subtitle)}<div class="app-body operations-body">${operationsNavHtml()}<main class="operations-main"><div class="operations-content">${renderIxViewHtml()}</div></main></div><div id="modalContainer"></div></div>`;
     bindInteractionHandlers();
-    if (ixView === "hall-of-fame") initHallOfFameEditor();
 }
 
 function renderIxViewHtml(){
     switch(ixView){
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
-        case "announcements": return renderAnnouncements();
         case "hall-of-fame": return renderHallOfFame();
         case "daily-goals": return renderDailyGoals();
         case "staff-roster": return renderStaffRoster();
+        case "event-suggestions": return renderEventSuggestions();
         default: return renderInteractionDashboard();
     }
-}
-
-function getCurrentStaffRecord() {
-    const discordId = getDiscordIdentity().discordId;
-    if (!discordId) return null;
-    return staff.find(s => String(s.discord_id || "") === String(discordId)) || null;
-}
-
-function getCurrentStaffId() {
-    return getCurrentStaffRecord()?.id || null;
-}
-
-function getTodayPointsForCurrentStaff() {
-    const staffId = getCurrentStaffId();
-    if (!staffId) return 0;
-    const today = formatDate(new Date());
-    return ops.points
-        .filter(p => String(p.staff_id) === String(staffId) && String(p.created_at || "").slice(0,10) === today)
-        .reduce((n,p) => n + Number(p.amount || 0), 0);
 }
 
 function renderInteractionDashboard(){
     const today=formatDate(new Date());
     const todayEvents=allEvents.filter(e=>e.event_date===today && !e.is_meeting);
-    const myPoints=getTodayPointsForCurrentStaff();
-    const recent=[...ops.tracker].slice(0,8);
-    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e)).length;
-    const booked=ops.hungry.filter(x=>x.status!=="completed" && x.event_date===today).length;
-    const announcements=ixData.announcements.slice(0,4);
+    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e));
+    const popular=[...completed].filter(e=>Number.isFinite(Number(e.attendance_count))).sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0)).slice(0,5);
     return `<div class="ix-command-grid">
       <div class="ix-stat-row">
-        <div class="ix-stat"><span>Interactions Today</span><strong>${ops.tracker.filter(t=>String(t.created_at||"").slice(0,10)===today).length}</strong><small>logged staff interactions</small></div>
-        <div class="ix-stat"><span>Your Points</span><strong>${myPoints}</strong><small>recorded interaction points</small></div>
-        <div class="ix-stat"><span>Completed Events</span><strong>${completed}</strong><small>manually completed</small></div>
-        <div class="ix-stat"><span>Booked Today</span><strong>${booked}</strong><small>open hungry-pool slots</small></div>
-      </div>
-      <div class="ix-two-col">
-        ${ixPanel("Recent Interactions", recent.length ? `<div class="ix-feed">${recent.map((r,i)=>`<div class="ix-feed-row"><div class="ix-avatar">${escapeHtml((r.staff?.name||r.staff_name||"K").slice(0,1).toUpperCase())}</div><div><b>${escapeHtml(r.action||r.activity||r.task||"Interaction")}</b><small>${escapeHtml(r.staff?.name||r.staff_name||"Staff")} · ${formatOpsDateTime(r.created_at)}</small></div><span class="ix-pill">${Number(r.points||0)>0?`+${Number(r.points)}`:"LOG"}</span></div>`).join("")}</div>`:`<div class="ix-empty">No recent interactions recorded.</div>`)}
-        ${ixPanel("Announcements", announcements.length ? `<div class="ix-ann-list">${announcements.map(a=>`<article><b>${escapeHtml(a.title)}</b><small>${formatOpsDateTime(a.created_at)}</small><p>${escapeHtml(a.body||"")}</p></article>`).join("")}</div>`:`<div class="ix-empty">No announcements yet.</div>`, canManage()?`<button class="ix-small-btn" onclick="openAnnouncementModal()">+ New</button>`:"")}
+        <div class="ix-stat"><span>Events Today</span><strong>${todayEvents.length}</strong><small>scheduled entertainment events</small></div>
+        <div class="ix-stat"><span>Completed Events</span><strong>${completed.length}</strong><small>manually confirmed</small></div>
+        <div class="ix-stat"><span>Event Ideas</span><strong>${(ixData.suggestions||[]).length}</strong><small>community suggestions</small></div>
+        <div class="ix-stat"><span>Top Attendance</span><strong>${popular[0]?.attendance_count || 0}</strong><small>${popular[0] ? escapeHtml(popular[0].title) : 'No completed events yet'}</small></div>
       </div>
       <div class="ix-two-col">
         ${ixPanel("Today's Schedule", todayEvents.length?`<div class="ix-schedule-list">${todayEvents.slice(0,10).map(e=>`<div><span>${formatTime(e.start_time)}</span><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`:`<div class="ix-empty">Nothing scheduled today.</div>`)}
-        ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('hungry')">Hungry Pool</button><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('daily-goals')">Daily Goals</button></div>`)}
+        ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('daily-goals')">Daily Goals</button>`:''}</div>`)}
       </div>
     </div>`;
 }
@@ -3299,18 +3044,153 @@ function renderInteractionDashboard(){
 function ixPanel(title,body,action=""){ return `<section class="ix-panel"><div class="ix-panel-head"><div><h3>${escapeHtml(title)}</h3></div>${action}</div>${body}</section>`; }
 
 function renderInteractionLeaderboard(){
-    const byStaff={};
-    staff.forEach(s=>byStaff[s.id]={name:s.name,discord:s.discord_id,points:0,events:0,interactions:0});
-    ops.points.forEach(p=>{ if(byStaff[p.staff_id]) byStaff[p.staff_id].points+=Number(p.amount||0); });
-    ops.tracker.forEach(t=>{ if(byStaff[t.staff_id]) byStaff[t.staff_id].interactions++; });
-    allEvents.filter(e=>!e.is_meeting && isEventCompleted(e)).forEach(e=>{ (e.event_staff||[]).forEach(es=>{ if(byStaff[es.staff_id]) byStaff[es.staff_id].events++; }); });
-    const rows=Object.values(byStaff).sort((a,b)=>(b.points+b.events*10+b.interactions)-(a.points+a.events*10+a.interactions));
-    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Staff Leaderboard</h3><small>Events, interactions and points</small></div></div><div class="ix-table">${rows.map((r,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-avatar">${escapeHtml((r.name||"K").slice(0,1).toUpperCase())}</div><div class="ix-grow"><b>${escapeHtml(r.name)}</b><small>${escapeHtml(r.discord||"")}</small></div><span><b>${r.events}</b><small>events</small></span><span><b>${r.interactions}</b><small>interactions</small></span><span class="ix-points">${r.points} pts</span></div>`).join("") || `<div class="ix-empty">No staff records yet.</div>`}</div></div>`;
+    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e) && Number.isFinite(Number(e.attendance_count)));
+    const most=[...completed].sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0));
+    const least=[...completed].sort((a,b)=>Number(a.attendance_count||0)-Number(b.attendance_count||0));
+    const eventRows=(rows, empty)=>rows.length?`<div class="ix-table">${rows.map((e,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||'Event')} · ${escapeHtml(e.event_date)}</small></div><span><b>${Number(e.attendance_count||0)}</b><small>attended</small></span><span class="ix-pill">${e.winner_name?`Winner: ${escapeHtml(e.winner_name)}`:'Completed'}</span></div>`).join('')}</div>`:`<div class="ix-empty">${empty}</div>`;
+    return `<div class="ix-two-col"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Popular Events</h3><small>Highest recorded attendance</small></div></div>${eventRows(most,'No completed attendance records yet.')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Least Popular Events</h3><small>Lowest recorded attendance</small></div></div>${eventRows(least,'No completed attendance records yet.')}</div></div>`;
 }
 
-function renderAnnouncements(){
-    const canEdit=canManage();
-    return `<div class="ix-panel"><div class="ix-panel-head"><div><h3>Announcements</h3><small>Keep staff and players informed</small></div>${canEdit?`<button class="primary-button" onclick="openAnnouncementModal()">+ Announcement</button>`:""}</div><div class="ix-ann-grid">${ixData.announcements.map(a=>`<article class="ix-ann-card"><div><span class="ix-label">${escapeHtml(a.category||"UPDATE")}</span><small>${formatOpsDateTime(a.created_at)}</small></div><h4>${escapeHtml(a.title)}</h4><p>${escapeHtml(a.body||"")}</p>${canEdit?`<button class="ix-danger-link" onclick="deleteAnnouncement('${a.id}')">Delete</button>`:""}</article>`).join("") || `<div class="ix-empty">No announcements yet.</div>`}</div></div>`;
+function renderAnnouncements(){ return ''; }
+
+function renderEventSuggestions(){
+    const suggestions=ixData.suggestions || [];
+    return `<div class="ix-panel event-suggestions-forum"><div class="ix-panel-head"><div><h3>Event Suggestions</h3><small>Public forum for KNG Entertainment event ideas</small></div><button class="primary-button" onclick="openNewEventSuggestionModal()">+ Suggest an Event</button></div><div class="suggestion-list">${suggestions.map(s=>`<article class="suggestion-card"><div><span class="ix-label">${escapeHtml(s.status||'NEW')}</span><small>${formatOpsDateTime(s.created_at)}</small></div><h4>${escapeHtml(s.title||'Event idea')}</h4><p>${escapeHtml(s.suggestion||'')}</p><small>Posted by ${escapeHtml(s.display_name||'Anonymous')}</small>${canManage()?`<button class="ix-danger-link" onclick="moderateSuggestion('${s.id}')">Mark reviewed</button>`:''}</article>`).join('') || `<div class="ix-empty">No suggestions yet. Be the first human to have an idea.</div>`}</div></div>`;
+}
+
+async function moderateSuggestion(id){
+    if(!canManage()) return;
+    const {error}=await supabaseClient.from('event_suggestions').update({status:'reviewed',updated_at:new Date().toISOString()}).eq('id',id);
+    if(error) return alert(error.message);
+    await loadInteractionData(); render();
+}
+
+function renderHallOfFame(){
+    const current=ixData.hof[0] || {};
+    const frames=[
+        {name:'Original', key:'original', src:'kng-hof-original.png'},
+        {name:'Gold', key:'gold', src:'kng-hof-gold.png'},
+        {name:'Emerald', key:'emerald', src:'kng-hof-emerald.png'},
+        {name:'Ocean', key:'ocean', src:'kng-hof-ocean.png'},
+        {name:'Sunset', key:'sunset', src:'kng-hof-sunset.png'},
+        {name:'Pink', key:'pink', src:'kng-hof-pink.png'},
+        {name:'Grey Scale', key:'grey-scale', src:'kng-hof-grey-scale.png'},
+        {name:'Colour Wheel', key:'colour-wheel', src:'kng-hof-grey-scale.png'},
+        {name:'Fire', key:'fire', src:'kng-hof-grey-scale.png'},
+        {name:'Rainbow', key:'rainbow', src:'kng-hof-grey-scale.png'},
+        {name:'Custom', key:'custom', src:'kng-hof-grey-scale.png'}
+    ];
+    const selected=String(current.frame||'Original').toLowerCase().replace(/\s+/g,'-') || 'original';
+    const colour=current.frame_colour || '#ff19b7';
+    const safeUrl=escapeHtml(current.image_url||'');
+    return `<div class="ix-hof-layout ix-hof-layout-v2">
+      <div class="ix-hof-canvas ix-hof-stage">
+        <div class="hof-composer" id="hofComposer" data-frame="${escapeHtml(selected)}" style="--hof-custom:${escapeHtml(colour)}">
+          <img id="hofFrameImage" class="hof-frame-image" src="${hofFrameAsset(selected)}" alt="KNG Estate Roleplay Hall of Fame frame">
+          <div class="hof-photo-window" id="hofPhotoWindow">
+            ${safeUrl?`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${safeUrl}" alt="Winner" style="--hof-scale:1;--hof-x:0px;--hof-y:0px">`:`<span class="hof-photo-placeholder">Add winner photo</span>`}
+          </div>
+        </div>
+      </div>
+      <div class="ix-hof-controls">
+        <div class="ix-panel hof-control-panel">
+          <div class="ix-panel-head"><div><h3>Hall of Fame</h3><small>Build the winner card exactly like the KNG frame.</small></div></div>
+          <div class="hof-control-section"><b>Frame Library</b><div class="ix-frame-grid hof-frame-grid">${frames.map(f=>`<button class="ix-frame-chip hof-frame-chip ${selected===f.key?'active':''}" data-hof-frame="${f.key}" onclick="selectHofFrame('${f.key}')">${escapeHtml(f.name)}</button>`).join('')}</div></div>
+          <label>Winner name<input id="hofWinnerName" value="${escapeHtml(current.winner_name||'')}" placeholder="Winner name"></label>
+          <div class="hof-photo-actions">${canManage()?`<button class="header-button" onclick="openHofUpload()">Add winner photo</button>`:''}<button class="header-button" onclick="resetHofPhoto()">Reset photo</button></div>
+          <div class="hof-custom-controls" id="hofCustomControls">
+            <label>Custom colour<input id="hofColour" type="color" value="${escapeHtml(colour)}" oninput="applyHofCustomColour(this.value)"></label>
+            <label>Intensity<input id="hofIntensity" type="range" min="0" max="100" value="${Math.round((Number(current.intensity)||100))}" oninput="applyHofCustomIntensity(this.value)"></label>
+          </div>
+          <div class="hof-help">Drag the winner photo inside the black box. Scroll to zoom.</div>
+          <div class="hof-action-row">${canManage()?`<button class="primary-button" onclick="saveHallOfFame()">Save Winner</button>`:""}<button class="header-button" onclick="downloadHallOfFame()">Download</button></div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function hofFrameAsset(key){
+    if(key==='original') return 'kng-hof-original.png';
+    if(['gold','emerald','ocean','sunset','pink','grey-scale'].includes(key)) return `kng-hof-${key}.png`;
+    return 'kng-hof-grey-scale.png';
+}
+function selectHofFrame(key){
+    const composer=document.getElementById('hofComposer'); if(!composer) return;
+    composer.dataset.frame=key;
+    composer.style.setProperty('--hof-custom', document.getElementById('hofColour')?.value || '#ff19b7');
+    document.querySelectorAll('.hof-frame-chip').forEach(b=>b.classList.toggle('active',b.dataset.hofFrame===key));
+    const img=document.getElementById('hofFrameImage'); if(img) img.src=hofFrameAsset(key);
+    composer.classList.remove('hof-effect-wheel','hof-effect-fire','hof-effect-rainbow','hof-effect-custom');
+    if(key==='colour-wheel') composer.classList.add('hof-effect-wheel');
+    if(key==='fire') composer.classList.add('hof-effect-fire');
+    if(key==='rainbow') composer.classList.add('hof-effect-rainbow');
+    if(key==='custom') composer.classList.add('hof-effect-custom');
+}
+function applyHofCustomColour(value){
+    const composer=document.getElementById('hofComposer'); if(!composer)return;
+    composer.style.setProperty('--hof-custom',value); if(composer.dataset.frame==='custom') selectHofFrame('custom');
+}
+function applyHofCustomIntensity(value){
+    const composer=document.getElementById('hofComposer'); if(!composer)return;
+    composer.style.setProperty('--hof-intensity',`${Math.max(0,Math.min(100,Number(value)||0))/100}`);
+}
+function resetHofPhoto(){
+    const img=document.getElementById('hofWinnerPhoto'); if(!img)return;
+    img.style.setProperty('--hof-scale','1'); img.style.setProperty('--hof-x','0px'); img.style.setProperty('--hof-y','0px');
+}
+function bindHofPhotoControls(){
+    const win=document.getElementById('hofPhotoWindow'), img=document.getElementById('hofWinnerPhoto'); if(!win||!img)return;
+    let dragging=false,sx=0,sy=0,ox=0,oy=0;
+    win.onpointerdown=e=>{ if(!img.src)return; dragging=true;sx=e.clientX;sy=e.clientY;ox=parseFloat(img.style.getPropertyValue('--hof-x'))||0;oy=parseFloat(img.style.getPropertyValue('--hof-y'))||0;win.setPointerCapture?.(e.pointerId); };
+    win.onpointermove=e=>{ if(!dragging)return; img.style.setProperty('--hof-x',`${ox+e.clientX-sx}px`);img.style.setProperty('--hof-y',`${oy+e.clientY-sy}px`); };
+    win.onpointerup=()=>dragging=false; win.onpointercancel=()=>dragging=false;
+    win.onwheel=e=>{ if(!img.src)return;e.preventDefault();const current=parseFloat(img.style.getPropertyValue('--hof-scale'))||1;const next=Math.max(.5,Math.min(3,current+(e.deltaY<0?.08:-.08)));img.style.setProperty('--hof-scale',next); };
+}
+async function saveHallOfFame(){
+    if(!canManage())return;
+    const winner_name=document.getElementById('hofWinnerName')?.value.trim();
+    const image_url=document.getElementById('hofWinnerPhoto')?.src || '';
+    const frame=document.getElementById('hofComposer')?.dataset.frame || 'original';
+    const frame_colour=document.getElementById('hofColour')?.value||'#ff19b7';
+    const intensity=Number(document.getElementById('hofIntensity')?.value||100);
+    const {error}=await supabaseClient.from('ix_hall_of_fame').insert({winner_name,image_url,frame,frame_colour,intensity,created_by:currentUser.id});
+    if(error)return alert(error.message); await loadInteractionData(); render();
+}
+async function downloadHallOfFame(){
+    const composer=document.getElementById('hofComposer'); const frameImg=document.getElementById('hofFrameImage'); if(!composer||!frameImg)return;
+    const canvas=document.createElement('canvas'); const w=1428,h=1806; canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');
+    const frame=new Image();frame.crossOrigin='anonymous';frame.src=frameImg.src;await new Promise(r=>{frame.onload=r;frame.onerror=r});ctx.drawImage(frame,0,0,w,h);
+    const photo=document.getElementById('hofWinnerPhoto'); if(photo?.src){ const p=new Image();p.crossOrigin='anonymous';p.src=photo.src;await new Promise(r=>{p.onload=r;p.onerror=r});
+      const win={x:182,y:654,w:1089,h:820};const scale=parseFloat(photo.style.getPropertyValue('--hof-scale'))||1;const x=parseFloat(photo.style.getPropertyValue('--hof-x'))||0;const y=parseFloat(photo.style.getPropertyValue('--hof-y'))||0;ctx.save();ctx.beginPath();ctx.rect(win.x,win.y,win.w,win.h);ctx.clip();const size=Math.max(win.w,win.h)*scale;ctx.drawImage(p,win.x+(win.w-size)/2+x,win.y+(win.h-size)/2+y,size,size);ctx.restore(); }
+    const a=document.createElement('a');a.download=`KNG-Hall-of-Fame-${(document.getElementById('hofWinnerName')?.value||'Winner').replace(/[^a-z0-9_-]+/gi,'-')}.png`;a.href=canvas.toDataURL('image/png');a.click();
+}
+function openHofUpload(){
+    if(!canManage()) return; const input=document.createElement('input'); input.type='file'; input.accept='image/*';
+    input.onchange=async()=>{ const file=input.files?.[0]; if(!file)return; const ext=(file.name.split('.').pop()||'jpg').toLowerCase(); const path=`${currentUser.id}/${Date.now()}.${ext}`; const {error}=await supabaseClient.storage.from('kng-hall-of-fame').upload(path,file,{upsert:false,contentType:file.type}); if(error)return alert(error.message); const {data}=supabaseClient.storage.from('kng-hall-of-fame').getPublicUrl(path); const old=document.getElementById('hofPhotoWindow'); if(old){old.innerHTML=`<img id="hofWinnerPhoto" class="hof-winner-photo" src="${escapeHtml(data.publicUrl)}" alt="Winner" style="--hof-scale:1;--hof-x:0px;--hof-y:0px">`;bindHofPhotoControls();} };
+    input.click();
+}
+
+function renderDailyGoals(){
+    const today=formatDate(new Date());
+    const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
+    const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
+    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:""}</div></div>`;
+}
+
+function renderStaffRoster(){
+    if (!currentUser || !canManage()) return `<div class="ix-panel"><div class="ix-empty">Staff access required.</div></div>`;
+    const allocated=new Set(rosterData.map(r=>String(r.staff_id)));
+    const unallocated=staff.filter(s=>!allocated.has(String(s.id)));
+    const renderTeam=team=>{
+        const rows=rosterData.filter(r=>r.team===team).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
+        const groups=['director','manager','adm','aux','ld','sub_ld','member'];
+        return groups.map(level=>{
+            const members=rows.filter(r=>r.hierarchy_level===level);
+            if(!members.length) return '';
+            return `<div class="roster-group"><div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div><div class="roster-table"><div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ALOPA</span><span>ACTIONS</span></div>${members.map(r=>`<div class="roster-row"><span class="roster-name"><b>${escapeHtml(r.staff?.name||'Unknown')}</b></span><span>${escapeHtml(r.kng_id||'N/A')}</span><span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span><span>${Number(r.strikes||0)}/3</span><span>${r.mentor?'Yes':'N/A'}</span><span>${r.on_alopa?'Yes':'No'}</span><span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">DELETE</button></span></div>`).join('')}</div></div>`;
+        }).join('') || `<div class="ix-empty">No ${team} staff allocated yet.</div>`;
+    };
+    return `<div class="roster-page"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Actions & Interactions Role Allocation</h3><small>Each staff member can be allocated to one side only.</small></div><button class="primary-button" onclick="openRosterExportModal()">Export to Discord</button></div><div class="allocation-grid">${unallocated.map(s=>`<div class="allocation-card"><div><b>${escapeHtml(s.name)}</b><small>${escapeHtml(s.discord_id||'No Discord ID')}</small></div><div><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','actions')">ACTIONS</button><button class="mini-btn" onclick="allocateEntertainmentTeam('${s.id}','interactions')">INTERACTIONS</button></div></div>`).join('') || `<div class="ix-empty">Everyone is already allocated to a side.</div>`}</div></div><div class="roster-hierarchy"><section class="roster-team-panel"><div class="roster-team-title">ACTIONS</div>${renderTeam('actions')}</section><section class="roster-team-panel"><div class="roster-team-title">INTERACTIONS</div>${renderTeam('interactions')}</section></div></div>`;
 }
 
 function bindInteractionHandlers(){ }
@@ -3322,223 +3202,183 @@ async function openAnnouncementModal(){
 }
 
 async function deleteAnnouncement(id){ if(!canManage()||!confirm("Delete this announcement?"))return;const {error}=await supabaseClient.from("ix_announcements").delete().eq("id",id);if(error)return alert(error.message);await loadInteractionData();render(); }
-function renderHallOfFame(){
-    const current=ixData.hof[0] || {};
-    hofEditor.frame = "KNG Estate Roleplay";
-    hofEditor.mode = current.frame_mode || "none";
-    hofEditor.hue = Number(current.hue ?? 310);
-    hofEditor.intensity = Number(current.intensity ?? 100);
-    hofEditor.colour = current.frame_colour || "#FF2D78";
-    hofEditor.photo = current.image_url || null;
-    hofEditor.photoX = Number(current.photo_x ?? 0);
-    hofEditor.photoY = Number(current.photo_y ?? 0);
-    hofEditor.photoZoom = Number(current.photo_zoom ?? 1);
-    const modeLabel = {none:"Original",hue:"Colour Wheel",fire:"Fire",rainbow:"Rainbow",gray:"Gray Scale",custom:"Custom"}[hofEditor.mode] || "Original";
-    return `<div class="hof-studio">
-      <div class="hof-heading">
-        <div><span class="hof-eyebrow">KNG INTERACTIONS · HALL OF FAME</span><h2>Hall of Fame</h2><p>Use the KNG Estate Roleplay frame, add the winner photo, then customise the colour exactly like the original editor.</p></div>
-      </div>
-      <div class="hof-studio-grid">
-        <section class="hof-canvas-panel">
-          <div class="hof-canvas-wrap">
-            <canvas id="hofCanvas" width="1428" height="1782" aria-label="KNG Estate Roleplay Hall of Fame preview"></canvas>
-            <div class="hof-help">Drag photo to move · scroll to zoom</div>
-          </div>
-          <div class="hof-canvas-actions">
-            <button class="secondary-button" onclick="openHofUpload()">↥ Add winner photo</button>
-            <button class="secondary-button" onclick="copyHallOfFame()">▣ Copy</button>
-            <button class="primary-button" onclick="downloadHallOfFame()">⇩ Download</button>
-          </div>
-        </section>
-        <aside class="hof-controls">
-          <div class="hof-control-panel">
-            <div class="hof-panel-title"><span>FRAME</span><small>KNG Estate Roleplay</small></div>
-            <button type="button" class="hof-frame-chip selected" data-hof-frame="KNG Estate Roleplay" onclick="selectHofFrame('KNG Estate Roleplay')"><span class="hof-thumb hof-thumb-estate"></span><b>KNG Estate Roleplay</b></button>
-          </div>
-          <div class="hof-control-panel">
-            <div class="hof-panel-title"><span>FRAME COLOUR</span><small id="hofFilterStatus">${modeLabel}</small></div>
-            <div class="hof-filter-grid">
-              <button type="button" class="${hofEditor.mode==="none"?"active":""}" data-hof-filter="none" onclick="setHofMode('none','Original')">◦ Original</button>
-              <button type="button" class="${hofEditor.mode==="hue"?"active":""}" data-hof-filter="hue" onclick="setHofMode('hue','Colour Wheel')">◉ Colour Wheel</button>
-              <button type="button" class="${hofEditor.mode==="fire"?"active":""}" data-hof-filter="fire" onclick="setHofMode('fire','Fire')">♨ Fire</button>
-              <button type="button" class="${hofEditor.mode==="rainbow"?"active":""}" data-hof-filter="rainbow" onclick="setHofMode('rainbow','Rainbow')">✦ Rainbow</button>
-              <button type="button" class="${hofEditor.mode==="gray"?"active":""}" data-hof-filter="gray" onclick="setHofMode('gray','Gray Scale')">◐ Gray Scale</button>
-              <button type="button" class="${hofEditor.mode==="custom"?"active":""}" data-hof-filter="custom" onclick="setHofMode('custom','Custom')">● Custom</button>
-            </div>
-            <div id="hofColourControls" class="hof-colour-controls" style="display:${["hue","custom"].includes(hofEditor.mode)?"block":"none"}">
-              <div class="hof-colour-row"><canvas id="hofHueWheel" width="120" height="120" aria-label="Colour wheel"></canvas><div class="hof-colour-stack"><div class="hof-colour-row"><button type="button" id="hofSwatch" class="hof-swatch" style="background:${escapeAttribute(hofEditor.colour)}" aria-label="Choose colour"></button><input id="hofHex" value="${escapeAttribute(hofEditor.colour.toUpperCase())}" maxlength="7"><span id="hofRgb"></span></div>
-              <label class="hof-range-row"><span>Hue</span><input id="hofHue" type="range" min="0" max="359" value="${hofEditor.hue}"><small id="hofHueValue">${hofEditor.hue}°</small></label>
-              <label class="hof-range-row"><span>Intensity</span><input id="hofIntensity" type="range" min="0" max="100" value="${hofEditor.intensity}"><small id="hofIntensityValue">${hofEditor.intensity}%</small></label></div></div>
-              <button type="button" class="secondary-button" onclick="resetHofColour()">Reset colour</button>
-            </div>
-          </div>
-          <div class="hof-control-panel hof-winner-panel">
-            <label>Winner name<input id="hofWinnerName" value="${escapeAttribute(current.winner_name||"")}" placeholder="Winner name"></label>
-            <small class="hof-saved-note">${current.created_at ? `Last saved ${formatOpsDateTime(current.created_at)}` : "No winner saved yet."}</small>
-            ${canManage()?`<button type="button" class="primary-button" onclick="saveHallOfFame()">Save Winner</button>`:`<small class="hof-saved-note">Management access is required to save a winner.</small>`}
-          </div>
-        </aside>
-      </div>
-    </div>`;
+async function submitEventFeedback(eventId, form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const rating = Number(data.rating || 5);
+    const feedback = String(data.feedback || '').trim();
+    const name = String(data.display_name || '').trim() || 'Anonymous';
+    if (!feedback) return alert('Please enter some feedback.');
+    const { error } = await supabaseClient.from('event_feedback').insert({
+        event_id: eventId,
+        display_name: name,
+        rating: Math.max(1, Math.min(5, rating)),
+        feedback
+    });
+    if (error) return alert(error.message);
+    closeModal();
+    await loadEvents();
+    openEvent(eventId);
 }
 
-function hofHexToRgb(hex){
-    const v=String(hex||"#FF2D78").replace("#",""); const n=parseInt(v,16);
-    return [n>>16,(n>>8)&255,n&255];
+async function submitEventSuggestion(eventId, form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const suggestion = String(data.suggestion || '').trim();
+    const name = String(data.display_name || '').trim() || 'Anonymous';
+    if (!suggestion) return alert('Please enter your suggestion.');
+    const { error } = await supabaseClient.from('event_suggestions').insert({
+        event_id: eventId || null,
+        display_name: name,
+        title: eventId ? `Suggestion for ${selectedEvent?.title || 'event'}` : 'Event suggestion',
+        suggestion,
+        status: 'new'
+    });
+    if (error) return alert(error.message);
+    closeModal();
+    alert('Thank you. Your suggestion has been submitted.');
 }
-function hofRgbToCss(rgb){ return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`; }
-function hofHueToHex(h){
-    const s=1,l=.55,c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2;
-    let r=0,g=0,b=0;
-    if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
-    return "#"+[r,g,b].map(v=>Math.round((v+m)*255).toString(16).padStart(2,"0")).join("").toUpperCase();
+
+function openEventFeedbackModal(eventId, mode='feedback') {
+    const event = events.find(e => e.id === eventId);
+    if (!event) return;
+    const title = mode === 'suggestion' ? 'Suggest something' : 'Give event feedback';
+    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">${escapeHtml(event.title)}</span><h2>${title}</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" onsubmit="event.preventDefault();${mode === 'suggestion' ? `submitEventSuggestion('${event.id}', this)` : `submitEventFeedback('${event.id}', this)`}"><input name="display_name" maxlength=80 placeholder="Your name (optional)">${mode === 'suggestion' ? `<textarea name="suggestion" rows=6 maxlength=1500 placeholder="What would you change or add?" required></textarea>` : `<select name="rating"><option value=5>★★★★★ Excellent</option><option value=4>★★★★ Great</option><option value=3>★★★ Good</option><option value=2>★★ Needs work</option><option value=1>★ Poor</option></select><textarea name="feedback" rows=6 maxlength=1500 placeholder="Tell us what you thought..." required></textarea>`}<button class="primary-button">Submit</button></form></div>`);
 }
-function hofModeGradient(ctx,w,h,mode,colour,intensity){
-    const a=Math.max(0.15,Math.min(1,Number(intensity||100)/100));
-    let grad;
-    if(mode==="fire"){
-        grad=ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,"#FFF7A0");grad.addColorStop(.28,"#FFD000");grad.addColorStop(.58,"#FF6A00");grad.addColorStop(1,"#C5002F");
-    } else if(mode==="rainbow"){
-        grad=ctx.createLinearGradient(0,0,w,h); ["#FF004C","#FF8A00","#FFE600","#00D86B","#00B7FF","#6D39FF","#E000FF"].forEach((c,i)=>grad.addColorStop(i/6,c));
-    } else {
-        grad=ctx.createLinearGradient(0,0,w,h); grad.addColorStop(0,colour);grad.addColorStop(1,colour);
-    }
-    ctx.save(); ctx.globalAlpha=a; ctx.globalCompositeOperation="color"; ctx.fillStyle=grad; ctx.fillRect(0,0,w,h); ctx.restore();
+
+async function openEventSuggestionForum() {
+    ixView = 'event-suggestions';
+    try { localStorage.setItem('kng.ixView', ixView); } catch (_) {}
+    await loadInteractionData();
+    render();
 }
-function selectHofFrame(name){
-    hofEditor.frame="KNG Estate Roleplay";
-    document.querySelectorAll("[data-hof-frame]").forEach(b=>b.classList.toggle("selected",b.dataset.hofFrame===name));
-    renderHofCanvas();
+
+function openNewEventSuggestionModal() {
+    showModal(`<div class="modal small-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Suggest an Event</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" onsubmit="event.preventDefault();submitForumSuggestion(this)"><input name="display_name" maxlength=80 placeholder="Your name (optional)"><input name="title" maxlength=120 placeholder="Event idea title" required><textarea name="suggestion" rows=7 maxlength=1500 placeholder="Describe your event idea..." required></textarea><button class="primary-button">Post Suggestion</button></form></div>`);
 }
-function setHofMode(mode,label){
-    hofEditor.mode=mode;
-    document.querySelectorAll("[data-hof-filter]").forEach(b=>b.classList.toggle("active",b.dataset.hofFilter===mode));
-    const status=document.getElementById("hofFilterStatus"); if(status)status.textContent=label;
-    const panel=document.getElementById("hofColourControls"); if(panel)panel.style.display=["hue","custom"].includes(mode)?"block":"none";
-    renderHofCanvas();
+
+async function submitForumSuggestion(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    const { error } = await supabaseClient.from('event_suggestions').insert({
+        event_id: null, display_name: String(data.display_name || '').trim() || 'Anonymous', title: String(data.title || '').trim(), suggestion: String(data.suggestion || '').trim(), status: 'new'
+    });
+    if (error) return alert(error.message);
+    closeModal();
+    await loadInteractionData();
+    render();
 }
-function setHofColour(hex){
-    hex=String(hex||"").trim(); if(!hex.startsWith("#"))hex="#"+hex;
-    if(!/^#[0-9a-fA-F]{6}$/.test(hex))return;
-    hofEditor.colour=hex.toUpperCase();
-    const hexEl=document.getElementById("hofHex");if(hexEl)hexEl.value=hofEditor.colour;
-    const swatch=document.getElementById("hofSwatch");if(swatch)swatch.style.background=hofEditor.colour;
-    const rgb=document.getElementById("hofRgb");if(rgb)rgb.textContent=hofRgbToCss(hofHexToRgb(hofEditor.colour));
-    renderHofCanvas();
+
+async function loadRosterData() {
+    if (!currentUser || !canManage()) { rosterData = []; return; }
+    const { data, error } = await supabaseClient.from('entertainment_roster').select('*, staff(id,name,discord_id,active)').eq('active', true).order('team').order('hierarchy_level');
+    if (error) { console.error('Roster load failed:', error); rosterData = []; return; }
+    rosterData = data || [];
 }
-function resetHofColour(){
-    hofEditor.colour="#FF2D78"; hofEditor.hue=330; hofEditor.intensity=100;
-    const h=document.getElementById("hofHue");if(h)h.value=330;
-    const i=document.getElementById("hofIntensity");if(i)i.value=100;
-    const hv=document.getElementById("hofHueValue");if(hv)hv.textContent="330°";
-    const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent="100%";
-    setHofMode("custom","Custom"); setHofColour(hofEditor.colour);
+
+function rosterLevelRank(level) {
+    return ({ director: 7, manager: 6, adm: 5, aux: 4, ld: 3, sub_ld: 2, member: 1 }[level] || 1);
 }
-function renderHofCanvas(){
-    const canvas=document.getElementById("hofCanvas");if(!canvas||!hofEditor.frameImage)return;
-    const ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
-    ctx.clearRect(0,0,w,h);ctx.fillStyle="#090b11";ctx.fillRect(0,0,w,h);
-    // Exact photo window measured from the supplied 476x594 frame and scaled 3x.
-    const hole={x:195,y:645,w:1068,h:789};
-    if(hofEditor.photoImage){
-        const img=hofEditor.photoImage,scale=Math.max(hole.w/img.width,hole.h/img.height)*hofEditor.photoZoom;
-        const dw=img.width*scale,dh=img.height*scale,dx=hole.x+(hole.w-dw)/2+hofEditor.photoX,dy=hole.y+(hole.h-dh)/2+hofEditor.photoY;
-        ctx.save();ctx.beginPath();ctx.rect(hole.x,hole.y,hole.w,hole.h);ctx.clip();ctx.drawImage(img,dx,dy,dw,dh);ctx.restore();
-    }
-    // Original is the supplied artwork. All other modes colourise a grayscale
-    // version while preserving the artwork's luminance and transparent window.
-    if(hofEditor.mode==="none"){
-        ctx.drawImage(hofEditor.frameImage,0,0,w,h);
-    } else if(hofEditor.frameGray){
-        ctx.drawImage(hofEditor.frameGray,0,0,w,h);
-        hofModeGradient(ctx,w,h,hofEditor.mode,hofEditor.colour,hofEditor.intensity);
-    } else {
-        ctx.drawImage(hofEditor.frameImage,0,0,w,h);
-    }
+
+function rosterLevelLabel(level, team) {
+    if (level === 'manager') return `Manager Of ${team === 'actions' ? 'Actions' : 'Interactions'}`;
+    if (level === 'sub_ld') return 'Sub-LD';
+    return String(level || 'member').toUpperCase();
 }
-function initHallOfFameEditor(){
-    const canvas=document.getElementById("hofCanvas");if(!canvas)return;
-    const frame=new Image();
-    frame.onload=()=>{
-        hofEditor.frameImage=frame;
-        const gray=document.createElement("canvas");gray.width=frame.naturalWidth;gray.height=frame.naturalHeight;
-        const g=gray.getContext("2d");g.drawImage(frame,0,0);
-        const data=g.getImageData(0,0,gray.width,gray.height);for(let i=0;i<data.data.length;i+=4){const y=Math.round(.299*data.data[i]+.587*data.data[i+1]+.114*data.data[i+2]);data.data[i]=data.data[i+1]=data.data[i+2]=y;}g.putImageData(data,0,0);hofEditor.frameGray=gray;hofEditor.ready=true;renderHofCanvas();
+
+async function allocateEntertainmentTeam(staffId, team) {
+    if (!canManage()) return;
+    if (!['actions','interactions'].includes(team)) return;
+    const existing = rosterData.find(r => String(r.staff_id) === String(staffId));
+    if (existing) return alert(`This staff member is already allocated to ${existing.team}. Edit their roster entry to change it.`);
+    const staffRow = staff.find(s => String(s.id) === String(staffId));
+    const { error } = await supabaseClient.from('entertainment_roster').insert({
+        staff_id: staffId, team, hierarchy_level: 'member', kng_id: '', discord_id: staffRow?.discord_id || '', strikes: 0, mentor: false, on_alopa: false, notes: '', active: true, created_by: currentUser.id, updated_by: currentUser.id
+    });
+    if (error) return alert(error.message);
+    await loadRosterData(); render();
+}
+
+async function promoteRosterMember(id) {
+    if (!canManage()) return;
+    const row = rosterData.find(r => r.id === id);
+    if (!row) return;
+    const order = ['member','sub_ld','ld','aux','adm','manager','director'];
+    const next = order[Math.min(order.indexOf(row.hierarchy_level) + 1, order.length - 1)];
+    if (next === row.hierarchy_level) return alert('They are already at the highest level.');
+    const { error } = await supabaseClient.from('entertainment_roster').update({ hierarchy_level: next, updated_by: currentUser.id }).eq('id', id);
+    if (error) return alert(error.message);
+    await loadRosterData(); render();
+}
+
+async function deleteRosterMember(id) {
+    if (!canManage() || !confirm('Remove this staff member from the Entertainment roster?')) return;
+    const { error } = await supabaseClient.from('entertainment_roster').update({ active: false, updated_by: currentUser.id }).eq('id', id);
+    if (error) return alert(error.message);
+    await loadRosterData(); render();
+}
+
+function openRosterEditModal(id) {
+    if (!canManage()) return;
+    const row = rosterData.find(r => r.id === id);
+    if (!row) return;
+    const s = row.staff || {};
+    showModal(`<div class="modal roster-edit-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Edit roster member</h2><small>Rank changes must use promote.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="rosterEditForm"><div class="form-grid"><div class="form-field"><label>Name</label><input name="name" value="${escapeAttribute(s.name || '')}" required></div><div class="form-field"><label>ID</label><input name="kng_id" value="${escapeAttribute(row.kng_id || '')}"></div><div class="form-field"><label>Discord ID</label><input name="discord_id" value="${escapeAttribute(s.discord_id || row.discord_id || '')}"></div><div class="form-field"><label>Team</label><select name="team"><option value="actions" ${row.team==='actions'?'selected':''}>Actions</option><option value="interactions" ${row.team==='interactions'?'selected':''}>Interactions</option></select></div><div class="form-field"><label>Level</label><select name="hierarchy_level">${['director','manager','adm','aux','ld','sub_ld','member'].map(v=>`<option value="${v}" ${row.hierarchy_level===v?'selected':''}>${escapeHtml(rosterLevelLabel(v,row.team))}</option>`).join('')}</select></div><div class="form-field"><label>Strikes</label><select name="strikes"><option>0</option><option ${row.strikes===1?'selected':''}>1</option><option ${row.strikes===2?'selected':''}>2</option><option ${row.strikes>=3?'selected':''}>3</option></select></div><div class="form-field"><label>Mentor</label><select name="mentor"><option value="false" ${!row.mentor?'selected':''}>N/A</option><option value="true" ${row.mentor?'selected':''}>Mentor</option></select></div><div class="form-field"><label>ALOPA</label><select name="on_alopa"><option value="false" ${!row.on_alopa?'selected':''}>No</option><option value="true" ${row.on_alopa?'selected':''}>Yes</option></select></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows=4>${escapeHtml(row.notes || '')}</textarea></div></div><button class="primary-button">Save Changes</button></form></div>`);
+    document.getElementById('rosterEditForm')?.addEventListener('submit', async e => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        const { error: staffError } = await supabaseClient.from('staff').update({ name: String(data.name).trim(), discord_id: String(data.discord_id || '').trim() || null }).eq('id', row.staff_id);
+        if (staffError) return alert(staffError.message);
+        const { error } = await supabaseClient.from('entertainment_roster').update({ team: data.team, hierarchy_level: data.hierarchy_level, kng_id: String(data.kng_id || '').trim(), strikes: Number(data.strikes || 0), mentor: data.mentor === 'true', on_alopa: data.on_alopa === 'true', notes: String(data.notes || '').trim(), updated_by: currentUser.id }).eq('id', id);
+        if (error) return alert(error.message);
+        closeModal(); await loadStaff(); await loadRosterData(); render();
+    });
+}
+
+function openRosterExportModal() {
+    if (!canManage()) return;
+    const build = team => {
+        const rows = rosterData.filter(r => r.team === team).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level) || String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
+        return ['director','manager','adm','aux','ld','sub_ld','member'].map(level => {
+            const members = rows.filter(r=>r.hierarchy_level===level);
+            if (!members.length) return '';
+            return `**${rosterLevelLabel(level, team).toUpperCase()}**\n${members.map(r=>`• ${r.staff?.name || 'Unknown'} | ${r.kng_id || 'N/A'} | ${r.staff?.discord_id || 'N/A'}`).join('\n')}`;
+        }).filter(Boolean).join('\n\n');
     };
-    frame.src="./kng-hof-frame.png";
-    const current=ixData.hof[0];
-    if(current){
-        hofEditor.photoX=Number(current.photo_x??0);hofEditor.photoY=Number(current.photo_y??0);hofEditor.photoZoom=Number(current.photo_zoom??1);
-        if(current.image_url){const img=new Image();img.crossOrigin="anonymous";img.onload=()=>{hofEditor.photoImage=img;renderHofCanvas();};img.src=current.image_url;}
-    }
-    const hexEl=document.getElementById("hofHex"),hueEl=document.getElementById("hofHue"),intEl=document.getElementById("hofIntensity");
-    const rgb=document.getElementById("hofRgb");if(rgb)rgb.textContent=hofRgbToCss(hofHexToRgb(hofEditor.colour));
-    const wheel=document.getElementById("hofHueWheel");
-    if(wheel){
-        const c=wheel.getContext("2d"),W=wheel.width,H=wheel.height,cx=W/2,cy=H/2,r=Math.min(W,H)/2-2;
-        const img=c.createImageData(W,H);
-        for(let y=0;y<H;y++)for(let x=0;x<W;x++){const dx=x-cx,dy=y-cy,d=Math.hypot(dx,dy),idx=(y*W+x)*4;if(d>r||d<r*.25){img.data[idx+3]=0;continue;}let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;const col=hofHexToRgb(hofHueToHex(Math.round(ang)));img.data[idx]=col[0];img.data[idx+1]=col[1];img.data[idx+2]=col[2];img.data[idx+3]=255;}c.putImageData(img,0,0);
-        const pick=(ev)=>{const rect=wheel.getBoundingClientRect(),mx=(ev.clientX-rect.left)*W/rect.width,my=(ev.clientY-rect.top)*H/rect.height,dx=mx-cx,dy=my-cy,d=Math.hypot(dx,dy);if(d>r||d<r*.25)return;let ang=Math.atan2(dy,dx)*180/Math.PI;if(ang<0)ang+=360;hofEditor.hue=Math.round(ang);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;const h=document.getElementById("hofHue");if(h)h.value=hofEditor.hue;setHofMode("hue","Colour Wheel");setHofColour(hofHueToHex(hofEditor.hue));};
-        wheel.addEventListener("click",pick);wheel.addEventListener("mousemove",ev=>{if(ev.buttons===1)pick(ev);});
-    }
-    hexEl?.addEventListener("change",()=>{setHofMode("custom","Custom");setHofColour(hexEl.value);});
-    hueEl?.addEventListener("input",()=>{hofEditor.hue=Number(hueEl.value);hofEditor.colour=hofHueToHex(hofEditor.hue);const hv=document.getElementById("hofHueValue");if(hv)hv.textContent=`${hofEditor.hue}°`;setHofMode("hue","Colour Wheel");setHofColour(hofEditor.colour);});
-    intEl?.addEventListener("input",()=>{hofEditor.intensity=Number(intEl.value);const iv=document.getElementById("hofIntensityValue");if(iv)iv.textContent=`${hofEditor.intensity}%`;renderHofCanvas();});
-    document.getElementById("hofSwatch")?.addEventListener("click",()=>{const temp=document.createElement("input");temp.type="color";temp.value=hofEditor.colour;temp.oninput=()=>{setHofMode("custom","Custom");setHofColour(temp.value)};temp.click();});
-    canvas.addEventListener("wheel",e=>{e.preventDefault();hofEditor.photoZoom=Math.max(.25,Math.min(4,hofEditor.photoZoom*(e.deltaY<0?1.08:.92)));renderHofCanvas();},{passive:false});
-    canvas.addEventListener("pointerdown",e=>{if(!hofEditor.photoImage)return;hofEditor.dragging=true;hofEditor.dragStartX=e.clientX;hofEditor.dragStartY=e.clientY;hofEditor.photoStartX=hofEditor.photoX;hofEditor.photoStartY=hofEditor.photoY;canvas.setPointerCapture(e.pointerId);});
-    canvas.addEventListener("pointermove",e=>{if(!hofEditor.dragging)return;const sx=canvas.width/canvas.clientWidth,sy=canvas.height/canvas.clientHeight;hofEditor.photoX=hofEditor.photoStartX+(e.clientX-hofEditor.dragStartX)*sx;hofEditor.photoY=hofEditor.photoStartY+(e.clientY-hofEditor.dragStartY)*sy;renderHofCanvas();});
-    canvas.addEventListener("pointerup",()=>hofEditor.dragging=false);canvas.addEventListener("pointercancel",()=>hofEditor.dragging=false);
-}
-async function copyHallOfFame(){
-    const canvas=document.getElementById("hofCanvas");if(!canvas)return;
-    try{const blob=await new Promise(r=>canvas.toBlob(r,"image/png"));if(navigator.clipboard?.write&&window.ClipboardItem){await navigator.clipboard.write([new ClipboardItem({"image/png":blob})]);alert("Hall of Fame image copied.");}else throw new Error("clipboard");}catch(e){alert("Copy is unavailable in this browser. Use Download instead.");}
-}
-function downloadHallOfFame(){const canvas=document.getElementById("hofCanvas");if(!canvas)return;const a=document.createElement("a");a.href=canvas.toDataURL("image/png");a.download=`KNG-Hall-of-Fame-${formatDate(new Date())}.png`;a.click();}
-function openHofUpload(){
-    if(!canManage())return;
-    const input=document.createElement("input");input.type="file";input.accept="image/*";
-    input.onchange=async()=>{const file=input.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{hofEditor.photoImage=img;hofEditor.photo=reader.result;hofEditor.photoX=0;hofEditor.photoY=0;hofEditor.photoZoom=1;renderHofCanvas();};img.src=reader.result;};reader.readAsDataURL(file);};
-    input.click();
-}
-async function saveHallOfFame(){
-    if(!canManage())return;
-    const winner_name=document.getElementById("hofWinnerName")?.value.trim();if(!winner_name)return alert("Enter a winner name first.");
-    let image_url=hofEditor.photo||ixData.hof[0]?.image_url||null;
-    if(hofEditor.photo&&hofEditor.photo.startsWith("data:")){
-        const blob=await (await fetch(hofEditor.photo)).blob(),ext=(blob.type.split("/")[1]||"png").replace("jpeg","jpg"),path=`${currentUser.id}/${Date.now()}-winner.${ext}`;
-        const {error}=await supabaseClient.storage.from("kng-hall-of-fame").upload(path,blob,{upsert:false,contentType:blob.type});
-        if(error)return alert(error.message);image_url=supabaseClient.storage.from("kng-hall-of-fame").getPublicUrl(path).data.publicUrl;
-    }
-    const canvas=document.getElementById("hofCanvas");
-    let rendered_image_url=ixData.hof[0]?.rendered_image_url||null;
-    if(canvas){
-        const pngBlob=await new Promise(r=>canvas.toBlob(r,"image/png"));
-        if(pngBlob){const path=`${currentUser.id}/${Date.now()}-hall-of-fame.png`;const {error}=await supabaseClient.storage.from("kng-hall-of-fame").upload(path,pngBlob,{upsert:false,contentType:"image/png"});if(!error)rendered_image_url=supabaseClient.storage.from("kng-hall-of-fame").getPublicUrl(path).data.publicUrl;}
-    }
-    const payload={winner_name,image_url,rendered_image_url,frame:"KNG Estate Roleplay",frame_colour:hofEditor.colour,frame_mode:hofEditor.mode,hue:hofEditor.hue,intensity:hofEditor.intensity,photo_x:Math.round(hofEditor.photoX),photo_y:Math.round(hofEditor.photoY),photo_zoom:hofEditor.photoZoom,created_by:currentUser.id};
-    const {error}=await supabaseClient.from("ix_hall_of_fame").insert(payload);if(error)return alert(error.message);
-    await loadInteractionData();render();
+    const output = `**ACTIONS**\n${build('actions') || 'No members allocated.'}\n\n**INTERACTIONS**\n${build('interactions') || 'No members allocated.'}`;
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Discord Output</span><h2>Hierarchy Output</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><textarea id="rosterExportText" class="roster-export" rows=20 readonly>${escapeHtml(output)}</textarea><div class="modal-footer"><button class="secondary-button" onclick="copyRosterOutput()">Copy Output</button><button class="primary-button" onclick="closeModal()">Done</button></div></div>`);
 }
 
-function renderDailyGoals(){
-    const today=formatDate(new Date());
-    const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
-    const earned=getTodayPointsForCurrentStaff(), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
-    return `<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${canManage()?`<button class="header-button" onclick="setDailyGoal()">Set Target</button>`:""}</div></div>`;
+async function copyRosterOutput() {
+    const text = document.getElementById('rosterExportText')?.value || '';
+    try { await navigator.clipboard.writeText(text); alert('Hierarchy output copied.'); } catch (_) { alert(text); }
 }
 
-async function setDailyGoal(){ if(!canManage())return;const target=prompt('Daily point target','8');const n=Number(target);if(!Number.isFinite(n)||n<1)return;const today=formatDate(new Date());const earned=getTodayPointsForCurrentStaff();const {error}=await supabaseClient.from('ix_daily_goals').upsert({user_id:currentUser.id,goal_date:today,target_points:n,points_earned:earned},{onConflict:'user_id,goal_date'});if(error)return alert(error.message);await loadInteractionData();render();}
+async function saveDailyGoal() {
+    if (!isDirector()) return alert('Only a Director can change the daily target.');
+    const target = prompt('Daily point target', '8');
+    const n = Number(target);
+    if (!Number.isFinite(n) || n < 1) return;
+    const today = formatDate(new Date());
+    const { error } = await supabaseClient.from('ix_daily_goals').upsert({ user_id: currentUser.id, goal_date: today, target_points: Math.floor(n), points_earned: 0 }, { onConflict: 'user_id,goal_date' });
+    if (error) return alert(error.message);
+    await loadInteractionData(); render();
+}
 
-window.openAnnouncementModal=openAnnouncementModal;
-window.deleteAnnouncement=deleteAnnouncement;
-window.saveHallOfFame=saveHallOfFame;
-window.selectHofFrame=selectHofFrame;
-window.openHofUpload=openHofUpload;
-window.setDailyGoal=setDailyGoal;
+window.openEventFeedbackModal=openEventFeedbackModal;
+window.submitEventFeedback=submitEventFeedback;
+window.submitEventSuggestion=submitEventSuggestion;
+window.openNewEventSuggestionModal=openNewEventSuggestionModal;
+window.submitForumSuggestion=submitForumSuggestion;
+window.moderateSuggestion=moderateSuggestion;
+window.allocateEntertainmentTeam=allocateEntertainmentTeam;
+window.promoteRosterMember=promoteRosterMember;
+window.openRosterEditModal=openRosterEditModal;
+window.deleteRosterMember=deleteRosterMember;
+window.openRosterExportModal=openRosterExportModal;
+window.copyRosterOutput=copyRosterOutput;
+window.saveDailyGoal=saveDailyGoal;
 
 /* =========================================================
    START
    ========================================================= */
 
 init();
+new MutationObserver(()=>{ if(document.getElementById("hofPhotoWindow")) bindHofPhotoControls(); }).observe(document.body,{childList:true,subtree:true});

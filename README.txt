@@ -1,39 +1,44 @@
-KNG ENTERTAINMENT COMPLETE FIXED PACK
+KNG ENTERTAINMENT - COMPLETE INTEGRATED BUILD
 
-This is the clean master build. It keeps the existing red/black KNG Entertainment Schedule and integrates the Interactions features.
+This pack keeps the KNG Schedule red/black theme and background, the KNG Estate Roleplay Hall of Fame frame system, the existing schedule, Discord login, operations, prizes/commands, access hierarchy and the integrated interaction tools.
 
-FILES TO UPLOAD TO YOUR GITHUB REPO:
+FILES TO UPLOAD TO YOUR REPO
 - index.html
+- supabase.js
 - app.js
 - style.css
-- supabase.js
 - kng-background.png
-- kng-hof-frame.png
+- kng-hof-original.png
+- kng-hof-gold.png
+- kng-hof-emerald.png
+- kng-hof-ocean.png
+- kng-hof-sunset.png
+- kng-hof-pink.png
+- kng-hof-grey-scale.png
+- hof-frame-source-original.png
 
-Do NOT remove the files above from the site.
+DATABASE
+- Run KNG-ENTERTAINMENT-COMPLETE-MIGRATION.sql ONCE in the Supabase SQL Editor.
+- This migration is intended to repair the missing schema used by the site and is re-runnable.
+- It adds the event completion/attendance/winner fields, public feedback and suggestions, the Actions/Interactions roster, crashout protection, hungry-pool claim RPCs, prize commands, Hall of Fame permissions and the requested Party/Event/Battle Royale/Community Meeting/Staff Meeting event types.
 
-DATABASE:
-1. Deploy the files first and let Render rebuild.
-2. In Supabase SQL Editor, open KNG-FINAL-DATABASE-MIGRATION.sql.
-3. Run that one migration once. It is designed to be rerunnable.
-4. Do NOT rerun the older giant setup files after this migration.
+IMPORTANT BEHAVIOUR
+- Events do NOT auto-complete. Staff must open a passed event, enter attendance, optionally enter the winner, then confirm completion.
+- Completed events show attendance and winner on the calendar and feed the most/least popular event leaderboards.
+- Meetings are separate from event statistics. Only Managers and Directors can create meetings.
+- Community Meeting is configured as a fortnightly recurring staff-only meeting series when no existing series is present.
+- Daily Goal target changes are Director-only.
+- Announcements and Logs are no longer navigation tabs.
+- Event feedback and event suggestions are public. The Event Suggestions forum is public.
+- Actions/Interactions roster allocation is one-side-only per staff member.
+- Roster uses the KNG-style hierarchy: Director, Manager Of Actions/Interactions, ADM, AUX, LD, Sub-LD, Member, with ALOPA, Mentor, Strikes, Notes, Promote, Edit and Delete controls.
+- Export to Discord generates a copyable KNG-style hierarchy output.
+- Prize command default: /giveitem {discord_id} {code} {amount}
+- Crashout protection defaults to 3 removals in 60 minutes, then a 30-minute timeout. Directors can change these limits in Security.
 
-WHAT THIS FIXES:
-- Blank page caused by stale private Interaction view state.
-- Single, consistent navigation between Schedule and Interactions.
-- Public players stay on Schedule and cannot see staff-only meetings.
-- Staff can see staff meetings once logged in.
-- Party / Event / Battle Royale / Community Meeting / Staff Meeting event types.
-- Community Meeting and Staff Meeting are marked as meetings and excluded from event leaderboards.
-- Recurring events and recurring meetings.
-- Events are completed manually, never automatically.
-- Hungry Pool: Manager/Director adds -> staff claims -> claimant completes.
-- Hungry Pool does not auto-complete.
-- Tracker and Points are readable to staff and writable by management.
-- Daily Goals calculate today's points from the actual Points records.
-- Hall of Fame uses the supplied KNG Estate Roleplay frame with the exact-style Original / Colour Wheel / Fire / Rainbow / Gray Scale / Custom controls.
-- Hall of Fame stores photo position and zoom and can save the rendered PNG.
-- Hall of Fame Copy and Download remain available.
-
-IMPORTANT:
-The Supabase publishable key in supabase.js is intentionally kept as the existing client-side key. Never add a service-role or secret key to the frontend.
+DEPLOYMENT
+1. Replace the files above in the repo.
+2. Keep the existing Render/Supabase deployment settings.
+3. Commit and push to GitHub so Render redeploys.
+4. Run the SQL migration in Supabase.
+5. Hard refresh the website (Ctrl+F5).
