@@ -63,6 +63,10 @@ alter table public.events add column if not exists winner_name text;
 alter table public.events add column if not exists completion_notes text;
 alter table public.events add column if not exists completed_at timestamptz;
 alter table public.events add column if not exists completed_by uuid references auth.users(id) on delete set null;
+alter table public.events add column if not exists host_source text not null default 'existing';
+alter table public.events add column if not exists host_locked boolean not null default false;
+alter table public.events drop constraint if exists events_host_source_check;
+alter table public.events add constraint events_host_source_check check (host_source in ('existing','random','manual','planned'));
 
 update public.events set visibility = 'public' where visibility is null or visibility not in ('public','staff');
 update public.events set status = 'scheduled' where status is null or status not in ('scheduled','completed','cancelled');
@@ -199,25 +203,24 @@ create table if not exists public.ops_prizes (
 );
 alter table public.ops_prizes add column if not exists command_template text not null default '/giveitem {discord_id} {code} {amount}';
 
-insert into public.ops_prizes (label, code, amount, command_template) values
+-- The three standard event prizes used by Prizes & Commands.
+insert into public.ops_prizes(label, code, amount, command_template) values
   ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} {reason}'),
   ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} {reason}'),
   ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} {reason}')
-on conflict (code) do update set
-  label = excluded.label,
-  amount = excluded.amount,
-  command_template = excluded.command_template;
+on conflict (code) do update set label=excluded.label, amount=excluded.amount, command_template=excluded.command_template, active=true;
 create table if not exists public.ops_helpers (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   staff_id uuid not null references public.staff(id) on delete cascade, note text, created_by uuid, created_at timestamptz not null default now(), unique(event_id, staff_id)
 );
 create table if not exists public.ops_prize_wins (
   id uuid primary key default gen_random_uuid(), prize_id uuid not null references public.ops_prizes(id) on delete restrict,
-  recipient_name text not null, discord_id text not null, amount integer not null default 1, command text not null, won_by uuid,
-  reason text, given boolean not null default false, created_at timestamptz not null default now()
+  recipient_name text not null, discord_id text not null, amount integer not null default 1, command text not null, won_by uuid, created_at timestamptz not null default now()
 );
-alter table public.ops_prize_wins add column if not exists reason text;
-alter table public.ops_prize_wins add column if not exists given boolean not null default false;
+alter table public.ops_prize_wins add column if not exists reason text not null default 'Event Winner';
+alter table public.ops_prize_wins add column if not exists completed boolean not null default false;
+alter table public.ops_prize_wins add column if not exists completed_at timestamptz;
+alter table public.ops_prize_wins add column if not exists completed_by uuid references auth.users(id) on delete set null;
 create table if not exists public.ops_timeouts (
   id uuid primary key default gen_random_uuid(), email text not null, expires_at timestamptz not null,
   reason text, created_by uuid, created_at timestamptz not null default now()
