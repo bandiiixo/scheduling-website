@@ -17,6 +17,12 @@ let selectedEvent = null;
 // Integrated KNG operations layer
 let opsView = localStorage.getItem("kng.opsView") || "schedule";
 let ops = { tracker: [], points: [], hungry: [], reductions: [], audit: [], security: [], prizes: [], helpers: [], prizeWins: [], timeouts: [], blocks: [] };
+
+const PRIZE_TYPES = [
+    { label: "Dirty Money", code: "dinheirosujo", amount: 500000 },
+    { label: "Dollars", code: "dollars", amount: 500000 },
+    { label: "Event VIP", code: "vipevento1", amount: 1 }
+];
 let accessBlock = null;
 let currentTimeout = null;
 let accessRequests = [];
@@ -2713,16 +2719,45 @@ function renderOpsSecurity() {
 
 function renderOpsPrizes() {
     const wins = ops.prizeWins || [];
+    const prizeCards = PRIZE_TYPES.map(p => `
+        <div class="prize-card prize-catalogue-card">
+            <span>${escapeHtml(p.label)}</span>
+            <b>${escapeHtml(p.code)}</b>
+            <strong>${Number(p.amount).toLocaleString()}</strong>
+            <small>!additem ID ${escapeHtml(p.code)} ${Number(p.amount).toLocaleString()} Reason</small>
+        </div>`).join("");
+    const winRows = wins.length ? wins.map(w => `
+        <div class="prize-win-row ${w.given ? "is-given" : ""}">
+            <div class="prize-win-details">
+                <div class="prize-win-title"><b>${escapeHtml(w.recipient_name || "Unknown")}</b><span>${escapeHtml(w.ops_prizes?.label || w.prize_label || "Prize")}</span></div>
+                <small>ID: ${escapeHtml(w.discord_id || "Unknown")} · ${Number(w.amount || 0).toLocaleString()} · ${formatOpsDateTime(w.created_at)}</small>
+                <code class="command-code">${escapeHtml(w.command || "")}</code>
+            </div>
+            <div class="prize-win-actions">
+                <button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button>
+                <label class="prize-given-check"><input type="checkbox" class="prize-given-toggle" data-id="${escapeAttribute(w.id)}" ${w.given ? "checked" : ""}> <span>Given in Discord</span></label>
+            </div>
+        </div>`).join("") : `<div class="ops-empty">No prize wins recorded yet.</div>`;
+
     return `${opsErrorNotice("prizes")}
         <div class="ops-toolbar prize-tabs">
-            <button class="integrated-nav-btn active" onclick="openPrizeWinModal()">🏆 Prize Win</button>
+            <button class="integrated-nav-btn active">🏆 Prize Win</button>
             <button class="integrated-nav-btn" onclick="document.getElementById('commandVault')?.scrollIntoView({behavior:'smooth'})">⌘ Commands</button>
         </div>
-        <div class="ops-grid-two">
-            ${canManage() ? opsCard("Prize catalogue", `<form id="prizeForm" class="ops-form"><input name="label" maxlength="100" placeholder="Prize name" required><input name="code" maxlength="80" placeholder="Item code" required><input name="amount" type="number" min="1" required placeholder="Amount"><input name="command_template" maxlength="300" placeholder="Command template" value="!additem {discord_id} {code} {amount} Event Winner"><button class="primary-button">Add prize</button><small>Prize wins use: <b>!additem ID code amount Event Winner</b></small></form>`) : ""}
-            ${opsCard("Prize catalogue", ops.prizes.length ? `<div class="prize-grid">${ops.prizes.map(p=>`<div class="prize-card"><span>${escapeHtml(p.label)}</span><b>${escapeHtml(p.code)}</b><strong>${Number(p.amount||0)}</strong><small>${escapeHtml(p.command_template || "")}</small></div>`).join("")}</div>` : `<div class="ops-empty">No prizes configured yet.</div>`)}
+        <div class="ops-grid-two prize-workspace">
+            ${canManage() ? opsCard("Event Winner", `<form id="prizeWinForm" class="ops-form prize-win-form">
+                <label>In-game ID<input name="discord_id" maxlength="50" inputmode="numeric" placeholder="e.g. 33333" required></label>
+                <label>Type<select name="prize_type" required><option value="">Select prize type</option>${PRIZE_TYPES.map(p => `<option value="${escapeAttribute(p.code)}">${escapeHtml(p.label)}</option>`).join("")}</select></label>
+                <label>Amount<input name="amount" type="number" min="1" readonly placeholder="Auto-filled from type"></label>
+                <label>Reason<input name="reason" maxlength="200" placeholder="e.g. Event Winner" required></label>
+                <div class="command-label">Command</div>
+                <div class="command-preview" id="commandPreview">Enter the ID, choose a type and enter a reason.</div>
+                <button type="button" class="secondary-button" id="copyPrizePreview">Copy command</button>
+                <button class="primary-button">Record Win &amp; Generate Command</button>
+            </form>`) : ""}
+            ${opsCard("Prize catalogue", `<div class="prize-grid">${prizeCards}</div><small class="prize-catalogue-note">Choose a prize type on the left. The amount and command code fill automatically.</small>`)}
         </div>
-        <div id="commandVault">${opsCard("Prize wins & command vault", wins.length ? `<div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Winner</th><th>Prize</th><th>Command</th><th>Won</th><th>Given</th><th></th></tr></thead><tbody>${wins.map(w=>`<tr class="${w.completed ? 'prize-win-complete' : ''}"><td>${escapeHtml(w.recipient_name || "Unknown")}</td><td>${escapeHtml(w.ops_prizes?.label || "Prize")}</td><td><code class="command-code">${escapeHtml(w.command || "")}</code></td><td>${formatOpsDateTime(w.created_at)}</td><td><label class="prize-done"><input type="checkbox" class="prize-done-checkbox" data-id="${w.id}" ${w.completed ? 'checked' : ''}><span>Done</span></label></td><td><button class="secondary-button copy-command" data-command="${escapeAttribute(w.command || "")}">Copy</button></td></tr>`).join("")}</tbody></table></div>` : `<div class="ops-empty">No prize wins recorded yet.</div>`)}</div>`;
+        <div id="commandVault">${opsCard("Prize wins & command vault", `<div class="prize-wins-list">${winRows}</div>`)}</div>`;
 }
 
 function renderOpsAccess() {
@@ -2754,13 +2789,16 @@ function bindOpsHandlers() {
     document.getElementById("pointsForm")?.addEventListener("submit", submitPoints);
     document.getElementById("hungryForm")?.addEventListener("submit", submitHungry);
     document.getElementById("reductionForm")?.addEventListener("submit", submitReduction);
-    document.getElementById("prizeForm")?.addEventListener("submit", submitPrize);
     document.getElementById("helperForm")?.addEventListener("submit", submitHelper);
     document.getElementById("timeoutForm")?.addEventListener("submit", submitTimeout);
     document.getElementById("blockForm")?.addEventListener("submit", submitBlock);
     document.getElementById("crashoutSettingsForm")?.addEventListener("submit", submitCrashoutSettings);
+    document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
+    document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
+    document.getElementById("copyPrizePreview")?.addEventListener("click", () => copyCommand(document.getElementById("commandPreview")?.textContent || "", document.getElementById("copyPrizePreview")));
     document.querySelectorAll(".copy-command").forEach(btn => btn.addEventListener("click", () => copyCommand(btn.dataset.command, btn)));
-    document.querySelectorAll(".prize-done-checkbox").forEach(btn => btn.addEventListener("change", () => setPrizeWinDone(btn.dataset.id, btn.checked)));
+    document.querySelectorAll(".prize-given-toggle").forEach(box => box.addEventListener("change", () => markPrizeWinGiven(box.dataset.id, box.checked)));
     document.querySelectorAll(".unblock-account").forEach(btn => btn.addEventListener("click", () => unblockAccount(btn.dataset.email)));
     document.querySelectorAll(".ops-delete-hungry").forEach(btn => btn.addEventListener("click", () => deleteHungry(btn.dataset.id)));
     document.querySelectorAll(".ops-claim-hungry").forEach(btn => btn.addEventListener("click", () => claimHungry(btn.dataset.id)));
@@ -2901,42 +2939,39 @@ async function unblockAccount(email) {
     await loadOpsData(); render();
 }
 
-async function openPrizeWinModal() {
-    if (!canManage()) return showLoginMessage();
-    const prizes = ops.prizes || [];
-    const preferredCodes = ["dinheirosujo", "dollars", "vipevento1"];
-    const prizeOptions = preferredCodes.map(code => prizes.find(p => p.code === code)).filter(Boolean);
-    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Event Winner</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form prize-win-form">
-        <label>In-game ID<input name="discord_id" maxlength="50" inputmode="numeric" placeholder="e.g. 33333" required></label>
-        <label>Type<select name="prize_id" required><option value="">Select prize type</option>${prizeOptions.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select></label>
-        <label>Amount<input name="prize_amount" type="number" min="1" placeholder="Auto-filled from type" readonly></label>
-        <label>Reason<input name="reason" maxlength="150" placeholder="e.g. Event Winner" required></label>
-        <div class="command-preview-wrap"><div class="field-label">Command</div><div class="command-preview" id="commandPreview">Enter the ID, choose a type and enter a reason.</div><button type="button" class="secondary-button" id="copyPrizePreview">Copy command</button></div>
-        <button class="primary-button">Record Win &amp; Generate Command</button>
-    </form></div>`);
-    document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
-    document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
-    document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
-    document.getElementById("copyPrizePreview")?.addEventListener("click", () => {
-        const command = updatePrizeCommandPreview();
-        if (command) copyCommand(command, document.getElementById("copyPrizePreview"));
-    });
+function openPrizeWinModal() {
+    document.getElementById("prizeWinForm")?.scrollIntoView({behavior:"smooth", block:"center"});
 }
 
-function buildPrizeCommand(prize, discordId, reason) {
+function getPrizeType(code) {
+    return PRIZE_TYPES.find(p => p.code === code) || null;
+}
+
+function buildPrizeCommand(prize, name, discordId, reason) {
     if (!prize || !discordId || !reason) return "";
-    return `!additem ${discordId} ${prize.code || ""} ${Number(prize.amount || 0)} ${reason}`.trim();
+    return `!additem ${discordId} ${prize.code} ${Number(prize.amount || 0)} ${reason}`;
 }
 
 function updatePrizeCommandPreview() {
     const f = document.getElementById("prizeWinForm");
-    if (!f) return "";
-    const prize = ops.prizes.find(p=>p.id === f.prize_id.value);
-    if (f.prize_amount) f.prize_amount.value = prize ? Number(prize.amount || 0) : "";
-    const command = buildPrizeCommand(prize, f.discord_id.value.trim(), f.reason.value.trim());
+    if (!f) return;
+    const prize = getPrizeType(f.prize_type.value);
+    if (prize) f.amount.value = Number(prize.amount);
+    const command = buildPrizeCommand(prize, "", f.discord_id.value.trim(), f.reason.value.trim());
     const box = document.getElementById("commandPreview");
     if (box) box.textContent = command || "Enter the ID, choose a type and enter a reason.";
-    return command;
+}
+
+async function ensurePrizeType(prize) {
+    const existing = (ops.prizes || []).find(p => p.code === prize.code);
+    if (existing) return existing;
+    const { data, error } = await supabaseClient.from("ops_prizes").insert({
+        label: prize.label, code: prize.code, amount: prize.amount,
+        command_template: "!additem {discord_id} {code} {amount} {reason}",
+        created_by: currentUser.id
+    }).select("*").single();
+    if (error) throw error;
+    return data;
 }
 
 async function submitPrizeWin(e) {
@@ -2944,37 +2979,35 @@ async function submitPrizeWin(e) {
     if (!canManage()) return;
     const data = new FormData(e.target);
     const discord_id = String(data.get("discord_id") || "").trim();
-    const prize_id = String(data.get("prize_id") || "");
-    const prize = ops.prizes.find(p=>p.id === prize_id);
-    if (!prize) return alert("Select a prize type.");
+    const prizeCode = String(data.get("prize_type") || "");
     const reason = String(data.get("reason") || "").trim();
+    const prizeType = getPrizeType(prizeCode);
+    if (!discord_id) return alert("Enter the in-game ID.");
+    if (!prizeType) return alert("Select a prize type.");
     if (!reason) return alert("Enter a reason.");
-    const command = buildPrizeCommand(prize, discord_id, reason);
-    const payload = { prize_id, recipient_name: "Event Winner", discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id, completed: false };
+    const prize = await ensurePrizeType(prizeType);
+    const command = buildPrizeCommand(prizeType, "", discord_id, reason);
+    const payload = { prize_id: prize.id, recipient_name: `ID ${discord_id}`, discord_id, amount: Number(prizeType.amount), command, won_by: currentUser.id, given: false, reason };
     const { error } = await supabaseClient.from("ops_prize_wins").insert(payload);
     if (error) return alert(error.message);
     await writeAudit("prize.won", payload);
-    closeModal(); await loadOpsData(); render();
+    e.target.reset();
+    const amount = e.target.amount; if (amount) amount.value = "";
+    updatePrizeCommandPreview();
+    await loadOpsData(); render();
+}
+
+async function markPrizeWinGiven(id, given) {
+    if (!canManage()) return;
+    const { error } = await supabaseClient.from("ops_prize_wins").update({given}).eq("id", id);
+    if (error) return alert(error.message);
+    await writeAudit(given ? "prize.given" : "prize.unmarked", { prize_win_id: id });
+    await loadOpsData(); render();
 }
 
 async function copyCommand(command, button) {
     try { await navigator.clipboard.writeText(command); button.textContent = "Copied"; setTimeout(()=>button.textContent="Copy",1200); }
     catch (_) { alert(command); }
-}
-
-async function setPrizeWinDone(id, completed) {
-    if (!canManage()) return;
-    const payload = { completed: !!completed, completed_at: completed ? new Date().toISOString() : null, completed_by: completed ? currentUser.id : null };
-    const { error } = await supabaseClient.from("ops_prize_wins").update(payload).eq("id", id);
-    if (error) {
-        alert(error.message);
-        await loadOpsData();
-        render();
-        return;
-    }
-    await writeAudit(completed ? "prize.command_completed" : "prize.command_reopened", { id });
-    await loadOpsData();
-    render();
 }
 
 async function writeAudit(action, details={}) {

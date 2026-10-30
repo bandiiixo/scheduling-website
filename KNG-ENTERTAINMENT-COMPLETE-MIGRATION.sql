@@ -197,7 +197,16 @@ create table if not exists public.ops_prizes (
   id uuid primary key default gen_random_uuid(), label text not null, code text not null unique,
   amount integer not null check (amount > 0), active boolean not null default true, created_by uuid, created_at timestamptz not null default now()
 );
-alter table public.ops_prizes add column if not exists command_template text not null default '!additem {discord_id} {code} {amount} {reason}';
+alter table public.ops_prizes add column if not exists command_template text not null default '/giveitem {discord_id} {code} {amount}';
+
+insert into public.ops_prizes (label, code, amount, command_template) values
+  ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} {reason}'),
+  ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} {reason}'),
+  ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} {reason}')
+on conflict (code) do update set
+  label = excluded.label,
+  amount = excluded.amount,
+  command_template = excluded.command_template;
 create table if not exists public.ops_helpers (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   staff_id uuid not null references public.staff(id) on delete cascade, note text, created_by uuid, created_at timestamptz not null default now(), unique(event_id, staff_id)
@@ -205,12 +214,10 @@ create table if not exists public.ops_helpers (
 create table if not exists public.ops_prize_wins (
   id uuid primary key default gen_random_uuid(), prize_id uuid not null references public.ops_prizes(id) on delete restrict,
   recipient_name text not null, discord_id text not null, amount integer not null default 1, command text not null, won_by uuid,
-  completed boolean not null default false, completed_at timestamptz, completed_by uuid,
-  created_at timestamptz not null default now()
+  reason text, given boolean not null default false, created_at timestamptz not null default now()
 );
-alter table public.ops_prize_wins add column if not exists completed boolean not null default false;
-alter table public.ops_prize_wins add column if not exists completed_at timestamptz;
-alter table public.ops_prize_wins add column if not exists completed_by uuid;
+alter table public.ops_prize_wins add column if not exists reason text;
+alter table public.ops_prize_wins add column if not exists given boolean not null default false;
 create table if not exists public.ops_timeouts (
   id uuid primary key default gen_random_uuid(), email text not null, expires_at timestamptz not null,
   reason text, created_by uuid, created_at timestamptz not null default now()
@@ -225,18 +232,6 @@ create table if not exists public.ops_security_settings (
   updated_by uuid, updated_at timestamptz not null default now()
 );
 insert into public.ops_security_settings(id) values (1) on conflict (id) do nothing;
--- Default Entertainment prizes
-insert into public.ops_prizes(label, code, amount, command_template, active)
-values
-  ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} {reason}', true),
-  ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} {reason}', true),
-  ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} {reason}', true)
-on conflict (code) do update set
-  label = excluded.label,
-  amount = excluded.amount,
-  command_template = excluded.command_template,
-  active = true;
-
 
 create index if not exists ops_tracker_created_idx on public.ops_tracker(created_at desc);
 create index if not exists ops_points_staff_idx on public.ops_points(staff_id, created_at desc);
