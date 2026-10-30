@@ -28,7 +28,8 @@ let rosterData = [];
 let crashoutSettings = { max_removals: 3, window_minutes: 60, timeout_minutes: 30 };
 if (opsView === "logs" || opsView === "announcements") opsView = "schedule";
 if (ixView === "announcements" || ixView === "logs") ixView = "command-dashboard";
-if (opsView === "points") opsView = "dashboard";
+if (ixView === "daily-goals") ixView = "personal-dashboard";
+if (["dashboard", "points", "reductions"].includes(opsView)) { opsView = "schedule"; ixView = "personal-dashboard"; }
 let ixLoadErrors = {};
 
 
@@ -350,7 +351,7 @@ function availableGrantLevels() {
    ========================================================= */
 
 function render() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","personal-dashboard","staff-roster","event-suggestions","public-f3"];
     if (accessBlock || currentTimeout) {
         renderAccessRestriction();
         return;
@@ -404,6 +405,8 @@ function render() {
                 ${currentUser ? `${nextRequestedAccessLevel() ? `<button class="header-button" onclick="requestStaffAccess()">Request ${String(nextRequestedAccessLevel()).toUpperCase()} Access</button>` : ""}<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}
               `
     }
+
+    <button class="header-button public-f3-button" onclick="switchOpsView('public-f3')">🎮 Public F3</button>
 
     <button class="header-button"
         onclick="goToday()">
@@ -2475,23 +2478,18 @@ window.unclaimHostSlot =
 function operationsNavHtml() {
     const pendingCount = accessRequests.filter(r => r.status === "pending").length;
     const items = [
-        // Public / community
         ["schedule", "▦", "Schedule", 0],
-        ["command-dashboard", "⌂", "Command Dashboard", 1],
         ["event-suggestions", "✦", "Event Suggestions", 0],
-        ["interactions-leaderboard", "♛", "Leaderboard", 1],
-        ["hall-of-fame", "▣", "Hall of Fame", 1],
-        // Staff tools
-        ["daily-goals", "◎", "Daily Goals", 1],
-        ["staff-roster", "♙", "Staff Roster", 2],
         ["hungry", "🎲", "Host an Event", 1],
-        // Operations
-        ["dashboard", "◈", "Operations Dashboard", 2],
-        ["actions", "⚡", "Actions & Interactions", 2],
         ["prizes", "◇", "Prizes & Commands", 2],
+        ["hall-of-fame", "▣", "Hall of Fame", 1],
+        ["personal-dashboard", "◎", "Personal Dashboard", 1],
+        ["staff-roster", "♙", "Staff Roster", 2],
+        ["command-dashboard", "⌂", "Command Dashboard", 1],
+        ["actions", "⚡", "Actions & Interactions", 2],
+        ["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2],
         ["security", "◉", "Security", 3]
     ];
-    if (canApproveAccess()) items.push(["access", "✓", `Access Requests${pendingCount ? ` (${pendingCount})` : ""}`, 2]);
     const rank = permissionRank();
     const visible = items.filter(([, , , requiredRank]) => rank >= requiredRank);
     return `<aside class="integrated-sidebar" aria-label="KNG navigation">
@@ -2526,8 +2524,8 @@ function opsHeader(title="KNG Schedule", subtitle="Events & Staff Planning") {
 }
 
 async function switchOpsView(view) {
-    const publicViews = ["event-suggestions"];
-    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "daily-goals", "staff-roster", "event-suggestions"];
+    const publicViews = ["event-suggestions", "public-f3"];
+    const ixViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame", "personal-dashboard", "staff-roster", "event-suggestions", "public-f3"];
     if (view !== "schedule" && !currentUser && !publicViews.includes(view)) {
         showLoginMessage();
         return;
@@ -2602,7 +2600,8 @@ function ixSchemaNotice(name) {
 }
 
 function renderOperations() {
-    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","daily-goals","staff-roster","event-suggestions"];
+    const ixViews = ["command-dashboard","interactions-leaderboard","hall-of-fame","personal-dashboard","staff-roster","event-suggestions","public-f3"];
+    if (ixView === "public-f3") { renderPublicF3Calendar(); return; }
     if (ixViews.includes(ixView)) { renderInteractionView(); return; }
     if (opsView === "schedule") { render(); return; }
     if (opsView === "access" && !canApproveAccess()) { showLoginMessage(); return; }
@@ -2611,7 +2610,7 @@ function renderOperations() {
         "command-dashboard": ["Command Dashboard", "KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard": ["Leaderboard", "Staff activity, events and points"],
         "hall-of-fame": ["Hall of Fame", "Winner frames and event recognition"],
-        "daily-goals": ["Daily Goals", "Track your interaction target"],
+        "personal-dashboard": ["Personal Dashboard", "Your daily goal and the useful bits of KNG operations"],
         "staff-roster": ["Staff Roster", "Current KNG Entertainment staff"],
         actions: ["Actions & Interactions", "Tracker, hungry pool, reductions and helpers"],
         tracker: ["Tracker", "Track staff activity and operational work"],
@@ -2643,7 +2642,7 @@ function renderOpsViewHtml() {
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
         case "hall-of-fame": return renderHallOfFame();
-        case "daily-goals": return renderDailyGoals();
+        case "personal-dashboard": return renderPersonalDashboard();
         case "staff-roster": return renderStaffRoster();
         case "event-suggestions": return renderEventSuggestions();
         case "actions": return renderOpsActionsHub();
@@ -2769,18 +2768,10 @@ function renderOpsDashboard() {
 }
 
 function renderOpsActionsHub() {
+    const pointsCard = canManage() ? opsCard("Adjust staff points", `<form id="actionsPointsForm" class="ops-form"><select name="staff_id" required><option value="">Select staff</option>${staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")}</select><input name="amount" type="number" min="-25" max="25" required placeholder="Points (-25 to 25)"><input name="reason" maxlength="200" required placeholder="Reason"><button class="primary-button">Apply adjustment</button><small>ADM+ only · maximum adjustment 25 points.</small></form>`) : "";
     return `<div class="ops-grid-two">
-        ${opsCard("Actions", `<div class="action-hub-grid">
-            <button class="hub-action" onclick="switchOpsView('tracker')"><b>Tracker</b><small>Staff activity and operational work</small></button>
-            <button class="hub-action" onclick="switchOpsView('hungry')"><b>Host an Event</b><small>Randomise, plan and manually edit event slots</small></button>
-            <button class="hub-action" onclick="switchOpsView('reductions')"><b>Reductions</b><small>Record staff reductions</small></button>
-            <button class="hub-action" onclick="switchOpsView('helpers')"><b>Helpers</b><small>Assign event helpers</small></button>
-        </div>`)}
-        ${opsCard("Quick actions", `<div class="action-hub-grid">
-            <button class="hub-action" onclick="openCreateEventModal()"><b>Create Event</b><small>Party, Event, Battle Royale or Community Meeting</small></button>
-            <button class="hub-action" onclick="openPrizeWinModal()"><b>Prize Win</b><small>Record a winner and generate their command</small></button>
-            <button class="hub-action" onclick="switchOpsView('security')"><b>Security</b><small>Timeout or kick off multiple users</small></button>
-        </div>`)}
+        ${opsCard("Actions & Interactions", `<div class="action-hub-grid"><button class="hub-action" onclick="switchOpsView('tracker')"><b>Tracker</b><small>Staff activity and operational work</small></button><button class="hub-action" onclick="switchOpsView('helpers')"><b>Helpers</b><small>Assign additional staff helpers to events</small></button></div>`)}
+        ${pointsCard || opsCard("Staff tools", `<div class="ops-empty">Management tools are only available to ADM and above.</div>`)}
     </div>`;
 }
 
@@ -2944,6 +2935,8 @@ function bindOpsHandlers() {
     });
     document.getElementById("openTrackerAdd")?.addEventListener("click", openTrackerAddModal);
     document.getElementById("pointsForm")?.addEventListener("submit", submitPoints);
+    document.getElementById("personalPointsForm")?.addEventListener("submit", submitPoints);
+    document.getElementById("actionsPointsForm")?.addEventListener("submit", submitPoints);
     document.getElementById("plannedHostForm")?.addEventListener("submit", submitPlannedHostEvent);
     document.getElementById("manualHostForm")?.addEventListener("submit", submitManualHostEvent);
     document.getElementById("reductionForm")?.addEventListener("submit", submitReduction);
@@ -3187,13 +3180,52 @@ function interactionHeader(title, subtitle) {
             <span class="mode-badge ${canManage() ? "staff-mode" : "player-mode"}">${canManage() ? "STAFF MODE" : "PLAYER VIEW"}</span>
             ${canManage() ? `<button class="header-button" onclick="openCreateEventModal()">+ Create Event</button>` : ""}
             ${isAdmin() ? `<button class="header-button" onclick="openCreateMeetingModal()">+ Meeting</button>` : ""}
+            <button class="header-button public-f3-button" onclick="switchOpsView('public-f3')">🎮 Public F3</button>
             ${currentUser ? `<button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}<button class="header-button" onclick="goToday()">Today</button>
         </div>
     </header>`;
 }
 
+function renderPublicF3Calendar() {
+    const today = formatDate(new Date());
+    const now = new Date();
+    const publicEvents = (allEvents || [])
+        .filter(e => e.event_date === today && !e.is_meeting && (e.visibility || "public") !== "staff")
+        .sort((a, b) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
+
+    let nextFound = false;
+    const cards = publicEvents.map(e => {
+        const start = new Date(`${e.event_date}T${String(e.start_time || "00:00:00").slice(0,8)}`);
+        const end = new Date(`${e.event_date}T${String(e.end_time || e.start_time || "00:00:00").slice(0,8)}`);
+        const passed = end.getTime() <= now.getTime();
+        const upcoming = !passed && !nextFound;
+        if (upcoming) nextFound = true;
+        const type = e.event_types?.name || "Event";
+        return `
+            <article class="public-f3-event ${passed ? "is-passed" : ""} ${upcoming ? "is-next" : ""}">
+                <div class="public-f3-time"><strong>${formatTime(e.start_time)}</strong><span>${formatTime(e.end_time)}</span></div>
+                <div class="public-f3-event-main">
+                    <div class="public-f3-event-title-row"><h3>${escapeHtml(e.title)}</h3>${upcoming ? `<span class="public-f3-next-badge">NEXT</span>` : ""}</div>
+                    <span class="public-f3-type">${escapeHtml(type)}</span>${e.location ? `<span class="public-f3-location">📍 ${escapeHtml(e.location)}</span>` : ""}
+                </div>
+            </article>`;
+    }).join("");
+
+    app.innerHTML = `
+        <div class="schedule-app public-f3-app">
+            <header class="schedule-header ops-header public-f3-header">
+                <div class="schedule-brand"><div class="schedule-logo crown-logo"><img src="kngcroiwn.png" alt="KNG crown"></div><div><h1>Public F3 Events</h1><span>Today’s KNG Entertainment event schedule</span></div></div>
+                <div class="schedule-header-actions"><span class="mode-badge player-mode">PUBLIC VIEW</span>${currentUser ? `<button class="header-button" onclick="switchOpsView('schedule')">Back to Schedule</button><button class="header-button" onclick="logout()">Logout</button>` : `<button class="header-button" onclick="openLogin()">Discord Login</button>`}</div>
+            </header>
+            <div class="app-body">${operationsNavHtml()}<main class="operations-main public-f3-main"><div class="public-f3-wrap">
+                <section class="public-f3-hero"><div><span class="public-f3-eyebrow">F3 EVENT CALENDAR</span><h2>${new Date(`${today}T00:00:00`).toLocaleDateString("en-GB", {weekday:"long", day:"numeric", month:"long", year:"numeric"})}</h2><p>Public entertainment events only. Staff meetings and private events are never shown here.</p></div><div class="public-f3-count"><strong>${publicEvents.length}</strong><span>events today</span></div></section>
+                <section class="public-f3-list">${cards || `<div class="ix-empty public-f3-empty">No public F3 events are scheduled for today.</div>`}</section>
+            </div></main></div>
+        </div><div id="modalContainer"></div>`;
+}
+
 function renderInteractionView() {
-    const publicViews = ["event-suggestions"];
+    const publicViews = ["event-suggestions", "public-f3"];
     const staffOnlyViews = ["command-dashboard", "interactions-leaderboard", "hall-of-fame"];
     if (staffOnlyViews.includes(ixView) && permissionRank() < 1) {
         ixView = "event-suggestions";
@@ -3204,7 +3236,8 @@ function renderInteractionView() {
         "command-dashboard":["Command Dashboard","KNG Interactions + Entertainment command centre"],
         "interactions-leaderboard":["Leaderboard","Staff activity, events and points"],
         "hall-of-fame":["Hall of Fame","Winner frames and event recognition"],
-        "daily-goals":["Daily Goals","Track your interaction target"],
+        "personal-dashboard":["Personal Dashboard","Your daily goal and the useful bits of KNG operations"],
+        "public-f3":["Public F3 Events","Today’s public entertainment schedule"],
         "staff-roster":["Staff Roster","Current KNG Entertainment staff"],
         "event-suggestions":["Event Suggestions","Public ideas and feedback for future events"]
     };
@@ -3218,9 +3251,10 @@ function renderIxViewHtml(){
         case "command-dashboard": return renderInteractionDashboard();
         case "interactions-leaderboard": return renderInteractionLeaderboard();
         case "hall-of-fame": return renderHallOfFame();
-        case "daily-goals": return renderDailyGoals();
+        case "personal-dashboard": return renderPersonalDashboard();
         case "staff-roster": return renderStaffRoster();
         case "event-suggestions": return renderEventSuggestions();
+        case "public-f3": return renderPublicF3Calendar();
         default: return renderInteractionDashboard();
     }
 }
@@ -3232,6 +3266,9 @@ function renderInteractionDashboard(){
     const scheduleHtml=upcomingEvents.length
         ? `<div class="ix-schedule-list">${upcomingEvents.map(e=>`<div><span>${escapeHtml(dashboardEventDateLabel(e))}</span><b>${escapeHtml(e.title)}</b><small>${formatTime(e.start_time)} · ${escapeHtml(e.event_types?.name||"Event")}</small></div>`).join("")}</div>`
         : `<div class="ix-empty">No upcoming events are scheduled. The calendar is, for once, allowed to breathe.</div>`;
+    const popularHtml=popular.length
+        ? `<div class="ix-table popular-events-table">${popular.map((e,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_date)} · ${escapeHtml(e.event_types?.name||'Event')}</small></div><span><b>${Number(e.attendance_count||0)}</b><small>attended</small></span></div>`).join('')}</div>`
+        : `<div class="ix-empty">No completed attendance records yet.</div>`;
     return `<div class="ix-command-grid">
       <div class="ix-stat-row">
         <div class="ix-stat"><span>Events Today</span><strong>${(allEvents||[]).filter(e=>e.event_date===formatDate(new Date()) && !e.is_meeting).length}</strong><small>scheduled entertainment events</small></div>
@@ -3241,7 +3278,11 @@ function renderInteractionDashboard(){
       </div>
       <div class="ix-two-col">
         ${ixPanel("Next Events",scheduleHtml,`<span class="ix-panel-note">Rolling from the current time</span>`)}
-        ${ixPanel("Quick Actions",`<div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('daily-goals')">Daily Goals</button>`:''}</div>`)}
+        ${ixPanel("Most Popular Events",popularHtml,`<span class="ix-panel-note">Highest recorded attendance</span>`)}
+      </div>
+      <div class="ix-panel">
+        <div class="ix-panel-head"><div><h3>Quick Actions</h3><small>Staff shortcuts</small></div></div>
+        <div class="ix-quick-grid"><button onclick="switchOpsView('interactions-leaderboard')">Leaderboard</button><button onclick="switchOpsView('hall-of-fame')">Hall of Fame</button><button onclick="switchOpsView('event-suggestions')">Event Suggestions</button>${currentUser?`<button onclick="switchOpsView('personal-dashboard')">Personal Dashboard</button>`:''}</div>
       </div>
     </div>`;
 }
@@ -3249,11 +3290,32 @@ function renderInteractionDashboard(){
 function ixPanel(title,body,action=""){ return `<section class="ix-panel"><div class="ix-panel-head"><div><h3>${escapeHtml(title)}</h3></div>${action}</div>${body}</section>`; }
 
 function renderInteractionLeaderboard(){
-    const completed=allEvents.filter(e=>!e.is_meeting && isEventCompleted(e) && Number.isFinite(Number(e.attendance_count)));
-    const most=[...completed].sort((a,b)=>Number(b.attendance_count||0)-Number(a.attendance_count||0));
-    const least=[...completed].sort((a,b)=>Number(a.attendance_count||0)-Number(b.attendance_count||0));
-    const eventRows=(rows, empty)=>rows.length?`<div class="ix-table">${rows.map((e,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(e.title)}</b><small>${escapeHtml(e.event_types?.name||'Event')} · ${escapeHtml(e.event_date)}</small></div><span><b>${Number(e.attendance_count||0)}</b><small>attended</small></span><span class="ix-pill">${e.winner_name?`Winner: ${escapeHtml(e.winner_name)}`:'Completed'}</span></div>`).join('')}</div>`:`<div class="ix-empty">${empty}</div>`;
-    return `<div class="ix-two-col"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Popular Events</h3><small>Highest recorded attendance</small></div></div>${eventRows(most,'No completed attendance records yet.')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Least Popular Events</h3><small>Lowest recorded attendance</small></div></div>${eventRows(least,'No completed attendance records yet.')}</div></div>`;
+    const hosted=new Map();
+    const names=new Map();
+    for(const e of (allEvents||[])){
+        const id=String(e.host_claimed_by||'').trim();
+        if(!id) continue;
+        const key=id;
+        hosted.set(key,(hosted.get(key)||0)+1);
+        names.set(key,String(e.host_claimed_name||'Staff'));
+    }
+    const hostedRows=[...hosted.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:names.get(id)||'Staff'}));
+    const pointMap=new Map();
+    for(const p of (ops.points||[])){
+        const id=String(p.staff_id||p.user_id||'').trim();
+        if(!id) continue;
+        pointMap.set(id,(pointMap.get(id)||0)+Number(p.points||0));
+    }
+    const pointRows=[...pointMap.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:staff.find(s=>String(s.id)===id)?.name||'Staff'}));
+    const activityMap=new Map();
+    for(const x of (ops.tracker||[])){
+        const id=String(x.staff_id||'').trim();
+        if(!id) continue;
+        activityMap.set(id,(activityMap.get(id)||0)+1);
+    }
+    const activityRows=[...activityMap.entries()].sort((a,b)=>b[1]-a[1]).map(([id,total])=>({id,total,name:staff.find(s=>String(s.id)===id)?.name||'Staff'}));
+    const rows=(list,label,unit)=>list.length?`<div class="ix-table">${list.slice(0,10).map((r,i)=>`<div class="ix-table-row"><span class="ix-rank">#${i+1}</span><div class="ix-grow"><b>${escapeHtml(r.name)}</b></div><span><b>${r.total}</b><small>${unit}</small></span></div>`).join('')}</div>`:`<div class="ix-empty">No ${escapeHtml(label.toLowerCase())} recorded yet.</div>`;
+    return `<div class="ix-two-col leaderboard-sections"><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Events Hosted</h3><small>Staff with the most claimed event slots</small></div></div>${rows(hostedRows,'hosted events','events hosted')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Points</h3><small>Highest staff point totals</small></div></div>${rows(pointRows,'points','points')}</div><div class="ix-panel"><div class="ix-panel-head"><div><h3>Most Activity</h3><small>Logged KNG activity</small></div></div>${rows(activityRows,'activity','activities')}</div></div>`;
 }
 
 function renderAnnouncements(){ return ''; }
@@ -3438,12 +3500,29 @@ function openHofUpload(){
     input.click();
 }
 
-function renderDailyGoals(){
+function renderPersonalDashboard(){
     const today=formatDate(new Date());
     const goal=ixData.goals.find(g=>g.goal_date===today) || {target_points:8,points_earned:0};
     const earned=Number(goal.points_earned||0), target=Math.max(1,Number(goal.target_points||8)), pct=Math.min(100,Math.round(earned/target*100));
-    return `${ixSchemaNotice("ix_daily_goals")}<div class="ix-goal-wrap"><div class="ix-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?"Goal completed. Nice work.":`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:""}</div></div>`;
+    const upcoming=getUpcomingDashboardEvents(6);
+    const completed=(allEvents||[]).filter(e=>!e.is_meeting && isEventCompleted(e));
+    const counts={};
+    completed.forEach(e=>{const key=e.title||e.event_types?.name||'Event'; counts[key]=(counts[key]||0)+1;});
+    const completedLeaders=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const upcomingHtml=upcoming.length?`<div class="ops-list personal-upcoming-list">${upcoming.map(e=>`<div class="ops-row"><div><b>${escapeHtml(e.title)}</b><small>${dashboardEventDateLabel(e)} · ${formatTime(e.start_time)} - ${formatTime(e.end_time)}</small></div><span class="ops-pill">${escapeHtml(e.event_types?.name||'Event')}</span></div>`).join('')}</div>`:`<div class="ops-empty">No upcoming events are currently scheduled.</div>`;
+    const completedHtml=completedLeaders.length?`<div class="ops-list">${completedLeaders.map(([name,count],i)=>`<div class="ops-row"><div><b>#${i+1} · ${escapeHtml(name)}</b><small>Completed ${count} time${count===1?'':'s'}</small></div><span class="ops-pill">${count}</span></div>`).join('')}</div>`:`<div class="ops-empty">No completed events yet.</div>`;
+    const adjustPoints=canManage()?`<section class="ops-card personal-management-card"><div class="ops-card-head"><div><h3>Adjust staff points</h3><small>ADM+ only. Maximum adjustment: 25 points.</small></div></div><form id="personalPointsForm" class="ops-form personal-points-form"><select name="staff_id" required><option value="">Select staff</option>${staff.map(s=>`<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}</select><input name="amount" type="number" min="-25" max="25" required placeholder="Points (-25 to 25)"><input name="reason" maxlength="200" required placeholder="Reason"><button class="primary-button">Apply adjustment</button></form></section>`:'';
+    return `${ixSchemaNotice("ix_daily_goals")}<div class="personal-dashboard">
+        <div class="personal-top-grid">
+            <section class="ix-goal-card personal-goal-card"><div class="ix-ring" style="--pct:${pct}%"><div><strong>${earned}</strong><small>/ ${target}</small></div></div><h3>Daily Goal</h3><p>${pct>=100?'Goal completed. Nice work.':`You need ${Math.max(0,target-earned)} more points to hit today's target.`}</p><div class="ix-progress"><span style="width:${pct}%"></span></div><small>${pct}% complete</small>${isDirector()?`<button class="header-button" onclick="saveDailyGoal()">Set Target</button>`:''}</section>
+            <div class="personal-stats-grid"><div class="ix-stat"><span>Upcoming</span><strong>${upcoming.length}</strong><small>next scheduled events</small></div><div class="ix-stat"><span>Completed</span><strong>${completed.length}</strong><small>completed events</small></div><div class="ix-stat"><span>Staff</span><strong>${staff.length}</strong><small>active staff</small></div><div class="ix-stat"><span>Ideas</span><strong>${(ixData.suggestions||[]).length}</strong><small>community suggestions</small></div></div>
+        </div>
+        <div class="ix-two-col personal-dashboard-grid">${ixPanel("Upcoming events",upcomingHtml,`<span class="ix-panel-note">Rolling from the current time</span>`)}${ixPanel("Completed events",completedHtml,`<span class="ix-panel-note">Most frequently completed</span>`)}</div>
+        ${adjustPoints}
+    </div>`;
 }
+
+function renderDailyGoals(){ return renderPersonalDashboard(); }
 
 function renderStaffRoster(){
     if (!currentUser || !canManage()) return `<div class="ix-panel"><div class="ix-empty">Staff access required.</div></div>`;
@@ -3453,7 +3532,7 @@ function renderStaffRoster(){
     const renderTeam=(team)=>{
         const rows=rosterData
             .filter(r=>r.team===team && r.active !== false)
-            .sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
+            .sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||a.display_name||'').localeCompare(String(b.staff?.name||b.display_name||'')));
         const groups=['director','manager','adm','aux','ld','sub_ld','member'];
         return groups.map(level=>{
             const members=rows.filter(r=>r.hierarchy_level===level);
@@ -3461,14 +3540,13 @@ function renderStaffRoster(){
             return `<div class="roster-group">
                 <div class="roster-group-title">${escapeHtml(rosterLevelLabel(level,team))}</div>
                 <div class="roster-table">
-                    <div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ALOPA</span><span>ACTIONS</span></div>
+                    <div class="roster-head"><span>NAME</span><span>ID</span><span>DISCORD</span><span>STRIKES</span><span>MENTOR</span><span>ACTIONS</span></div>
                     ${members.map(r=>`<div class="roster-row">
-                        <span class="roster-name"><b>${escapeHtml(r.staff?.name||'Unknown')}</b></span>
+                        <span class="roster-name"><b>${escapeHtml(r.staff?.name||r.display_name||'Unknown')}</b></span>
                         <span>${escapeHtml(r.kng_id||'N/A')}</span>
                         <span>${escapeHtml(r.staff?.discord_id||r.discord_id||'N/A')}</span>
                         <span>${Number(r.strikes||0)}/3</span>
                         <span>${r.mentor?'Yes':'N/A'}</span>
-                        <span>${r.on_alopa?'Yes':'No'}</span>
                         <span class="roster-actions"><button class="mini-btn" onclick="promoteRosterMember('${r.id}')">PROMOTE</button><button class="mini-btn" onclick="openRosterEditModal('${r.id}')">EDIT</button><button class="mini-btn danger" onclick="deleteRosterMember('${r.id}')">REMOVE</button></span>
                     </div>`).join('')}
                 </div>
@@ -3600,7 +3678,7 @@ async function allocateEntertainmentTeam(staffId, team) {
     if (existing) return alert(`This staff member is already allocated to ${existing.team}. Edit their roster entry to change it.`);
     const staffRow = staff.find(s => String(s.id) === String(staffId));
     const { error } = await supabaseClient.from('entertainment_roster').insert({
-        staff_id: staffId, team, hierarchy_level: 'member', kng_id: '', discord_id: staffRow?.discord_id || '', strikes: 0, mentor: false, on_alopa: false, notes: '', active: true, created_by: currentUser.id, updated_by: currentUser.id
+        staff_id: staffId, display_name: staffRow?.name || '', team, hierarchy_level: 'member', kng_id: '', discord_id: staffRow?.discord_id || '', strikes: 0, mentor: false, notes: '', active: true, created_by: currentUser.id, updated_by: currentUser.id
     });
     if (error) return alert(error.message);
     await loadRosterData(); render();
@@ -3630,20 +3708,22 @@ function openRosterEditModal(id) {
     const row = rosterData.find(r => r.id === id);
     if (!row) return;
     const s = row.staff || {};
-    showModal(`<div class="modal roster-edit-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Edit roster member</h2><small>Rank changes must use promote.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="rosterEditForm"><div class="form-grid"><div class="form-field"><label>Name</label><input name="name" value="${escapeAttribute(s.name || '')}" required></div><div class="form-field"><label>ID</label><input name="kng_id" value="${escapeAttribute(row.kng_id || '')}"></div><div class="form-field"><label>Discord ID</label><input name="discord_id" value="${escapeAttribute(s.discord_id || row.discord_id || '')}"></div><div class="form-field"><label>Team</label><select name="team"><option value="actions" ${row.team==='actions'?'selected':''}>Actions</option><option value="interactions" ${row.team==='interactions'?'selected':''}>Interactions</option></select></div><div class="form-field"><label>Level</label><select name="hierarchy_level">${['director','manager','adm','aux','ld','sub_ld','member'].map(v=>`<option value="${v}" ${row.hierarchy_level===v?'selected':''}>${escapeHtml(rosterLevelLabel(v,row.team))}</option>`).join('')}</select></div><div class="form-field"><label>Strikes</label><select name="strikes"><option>0</option><option ${row.strikes===1?'selected':''}>1</option><option ${row.strikes===2?'selected':''}>2</option><option ${row.strikes>=3?'selected':''}>3</option></select></div><div class="form-field"><label>Mentor</label><select name="mentor"><option value="false" ${!row.mentor?'selected':''}>N/A</option><option value="true" ${row.mentor?'selected':''}>Mentor</option></select></div><div class="form-field"><label>ALOPA</label><select name="on_alopa"><option value="false" ${!row.on_alopa?'selected':''}>No</option><option value="true" ${row.on_alopa?'selected':''}>Yes</option></select></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows=4>${escapeHtml(row.notes || '')}</textarea></div></div><button class="primary-button">Save Changes</button></form></div>`);
+    showModal(`<div class="modal roster-edit-modal"><div class="modal-header"><div><span class="modal-eyebrow">KNG Entertainment</span><h2>Edit roster member</h2><small>Rank changes must use promote.</small></div><button class="modal-close" onclick="closeModal()">×</button></div><form class="ops-form" id="rosterEditForm"><div class="form-grid"><div class="form-field"><label>Name</label><input name="name" value="${escapeAttribute(s.name || row.display_name || '')}" required></div><div class="form-field"><label>ID</label><input name="kng_id" value="${escapeAttribute(row.kng_id || '')}"></div><div class="form-field"><label>Discord ID</label><input name="discord_id" value="${escapeAttribute(s.discord_id || row.discord_id || '')}"></div><div class="form-field"><label>Team</label><select name="team"><option value="actions" ${row.team==='actions'?'selected':''}>Actions</option><option value="interactions" ${row.team==='interactions'?'selected':''}>Interactions</option></select></div><div class="form-field"><label>Level</label><select name="hierarchy_level">${['director','manager','adm','aux','ld','sub_ld','member'].map(v=>`<option value="${v}" ${row.hierarchy_level===v?'selected':''}>${escapeHtml(rosterLevelLabel(v,row.team))}</option>`).join('')}</select></div><div class="form-field"><label>Strikes</label><select name="strikes"><option>0</option><option ${row.strikes===1?'selected':''}>1</option><option ${row.strikes===2?'selected':''}>2</option><option ${row.strikes>=3?'selected':''}>3</option></select></div><div class="form-field"><label>Mentor</label><select name="mentor"><option value="false" ${!row.mentor?'selected':''}>N/A</option><option value="true" ${row.mentor?'selected':''}>Mentor</option></select></div><div class="form-field full"><label>Notes</label><textarea name="notes" rows=4>${escapeHtml(row.notes || '')}</textarea></div></div><button class="primary-button">Save Changes</button></form></div>`);
     document.getElementById('rosterEditForm')?.addEventListener('submit', async e => {
         e.preventDefault();
         const data = Object.fromEntries(new FormData(e.target).entries());
-        const { error: staffError } = await supabaseClient.from('staff').update({ name: String(data.name).trim(), discord_id: String(data.discord_id || '').trim() || null }).eq('id', row.staff_id);
+        const newName = String(data.name || '').trim();
+        const newDiscordId = String(data.discord_id || '').trim();
+        const { error: staffError } = await supabaseClient.from('staff').update({ name: newName, discord_id: newDiscordId || null }).eq('id', row.staff_id);
         if (staffError) return alert(staffError.message);
-        const { error } = await supabaseClient.from('entertainment_roster').update({ team: data.team, hierarchy_level: data.hierarchy_level, kng_id: String(data.kng_id || '').trim(), strikes: Number(data.strikes || 0), mentor: data.mentor === 'true', on_alopa: data.on_alopa === 'true', notes: String(data.notes || '').trim(), updated_by: currentUser.id }).eq('id', id);
+        const { error } = await supabaseClient.from('entertainment_roster').update({ display_name: newName, team: data.team, hierarchy_level: data.hierarchy_level, kng_id: String(data.kng_id || '').trim(), discord_id: newDiscordId, strikes: Number(data.strikes || 0), mentor: data.mentor === 'true', notes: String(data.notes || '').trim(), updated_by: currentUser.id }).eq('id', id);
         if (error) return alert(error.message);
         closeModal(); await loadStaff(); await loadRosterData(); render();
     });
 }
 
 function buildDiscordRosterText(team) {
-    const rows = rosterData.filter(r => r.team === team && r.active !== false).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||'').localeCompare(String(b.staff?.name||'')));
+    const rows = rosterData.filter(r => r.team === team && r.active !== false).sort((a,b)=>rosterLevelRank(b.hierarchy_level)-rosterLevelRank(a.hierarchy_level)||String(a.staff?.name||a.display_name||'').localeCompare(String(b.staff?.name||b.display_name||'')));
     const groups = [['director','DIRECTOR'],['manager',`MANAGER OF ${team.toUpperCase()}`],['adm','ADM'],['aux','AUX'],['ld','LD'],['sub_ld','S.LD'],['member','MEMBER']];
     const lines=[];
     for (const [level,label] of groups) { const members=rows.filter(r=>r.hierarchy_level===level); if(!members.length) continue; lines.push(`   ${label}`); for(const member of members){ const discordId=String(member.staff?.discord_id||member.discord_id||'').trim(); if(discordId) lines.push(`╰› <@${discordId}>`); } lines.push(''); }
