@@ -584,6 +584,7 @@ create policy kng_hof_storage_delete on storage.objects for delete to authentica
 
 create table if not exists public.entertainment_roster (
   id uuid primary key default gen_random_uuid(), staff_id uuid not null unique references public.staff(id) on delete cascade,
+  display_name text,
   team text not null check(team in ('actions','interactions')),
   hierarchy_level text not null default 'member' check(hierarchy_level in ('director','manager','adm','aux','ld','sub_ld','member')),
   kng_id text,
@@ -595,6 +596,12 @@ create table if not exists public.entertainment_roster (
   active boolean not null default true,
   created_by uuid, updated_by uuid, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+alter table public.entertainment_roster add column if not exists display_name text;
+update public.entertainment_roster er
+set display_name = coalesce(nullif(er.display_name, ''), s.name)
+from public.staff s
+where s.id = er.staff_id
+  and (er.display_name is null or btrim(er.display_name) = '');
 create index if not exists entertainment_roster_team_idx on public.entertainment_roster(team,hierarchy_level);
 alter table public.entertainment_roster enable row level security;
 drop policy if exists entertainment_roster_read on public.entertainment_roster;
