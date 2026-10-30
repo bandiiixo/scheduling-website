@@ -2904,39 +2904,53 @@ async function unblockAccount(email) {
 async function openPrizeWinModal() {
     if (!canManage()) return showLoginMessage();
     const prizes = ops.prizes || [];
-    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Record Prize Win</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form"><input name="recipient_name" maxlength="100" placeholder="Winner / prize name" required><input name="discord_id" maxlength="50" placeholder="In-game ID" required><select name="prize_id" required><option value="">Select prize</option>${prizes.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select><input name="prize_code" maxlength="80" placeholder="Prize code" readonly><input name="prize_amount" type="number" min="1" placeholder="Amount" readonly><input name="reason" value="Event Winner" readonly><div class="command-preview" id="commandPreview">Choose a prize and enter the winner's ID.</div><button class="primary-button">Record Win &amp; Generate Command</button></form></div>`);
+    const preferredCodes = ["dinheirosujo", "dollars", "vipevento1"];
+    const prizeOptions = preferredCodes.map(code => prizes.find(p => p.code === code)).filter(Boolean);
+    showModal(`<div class="modal"><div class="modal-header"><div><span class="modal-eyebrow">Prize Win</span><h2>Event Winner</h2></div><button class="modal-close" onclick="closeModal()">×</button></div><form id="prizeWinForm" class="ops-form prize-win-form">
+        <label>In-game ID<input name="discord_id" maxlength="50" inputmode="numeric" placeholder="e.g. 33333" required></label>
+        <label>Type<select name="prize_id" required><option value="">Select prize type</option>${prizeOptions.map(p=>`<option value="${p.id}">${escapeHtml(p.label)}</option>`).join("")}</select></label>
+        <label>Amount<input name="prize_amount" type="number" min="1" placeholder="Auto-filled from type" readonly></label>
+        <label>Reason<input name="reason" maxlength="150" placeholder="e.g. Event Winner" required></label>
+        <div class="command-preview-wrap"><div class="field-label">Command</div><div class="command-preview" id="commandPreview">Enter the ID, choose a type and enter a reason.</div><button type="button" class="secondary-button" id="copyPrizePreview">Copy command</button></div>
+        <button class="primary-button">Record Win &amp; Generate Command</button>
+    </form></div>`);
     document.getElementById("prizeWinForm")?.addEventListener("change", updatePrizeCommandPreview);
     document.getElementById("prizeWinForm")?.addEventListener("input", updatePrizeCommandPreview);
     document.getElementById("prizeWinForm")?.addEventListener("submit", submitPrizeWin);
+    document.getElementById("copyPrizePreview")?.addEventListener("click", () => {
+        const command = updatePrizeCommandPreview();
+        if (command) copyCommand(command, document.getElementById("copyPrizePreview"));
+    });
 }
 
-function buildPrizeCommand(prize, name, discordId) {
-    const template = prize?.command_template || "!additem {discord_id} {code} {amount} Event Winner";
-    return template.replaceAll("{discord_id}", discordId).replaceAll("{name}", name).replaceAll("{code}", prize?.code || "").replaceAll("{amount}", String(prize?.amount || 0));
+function buildPrizeCommand(prize, discordId, reason) {
+    if (!prize || !discordId || !reason) return "";
+    return `!additem ${discordId} ${prize.code || ""} ${Number(prize.amount || 0)} ${reason}`.trim();
 }
 
 function updatePrizeCommandPreview() {
     const f = document.getElementById("prizeWinForm");
-    if (!f) return;
+    if (!f) return "";
     const prize = ops.prizes.find(p=>p.id === f.prize_id.value);
-    if (f.prize_code) f.prize_code.value = prize?.code || "";
     if (f.prize_amount) f.prize_amount.value = prize ? Number(prize.amount || 0) : "";
-    const command = buildPrizeCommand(prize, f.recipient_name.value.trim(), f.discord_id.value.trim());
+    const command = buildPrizeCommand(prize, f.discord_id.value.trim(), f.reason.value.trim());
     const box = document.getElementById("commandPreview");
-    if (box) box.textContent = prize ? command : "Choose a prize and enter the winner's ID.";
+    if (box) box.textContent = command || "Enter the ID, choose a type and enter a reason.";
+    return command;
 }
 
 async function submitPrizeWin(e) {
     e.preventDefault();
     if (!canManage()) return;
     const data = new FormData(e.target);
-    const recipient_name = String(data.get("recipient_name") || "").trim();
     const discord_id = String(data.get("discord_id") || "").trim();
     const prize_id = String(data.get("prize_id") || "");
     const prize = ops.prizes.find(p=>p.id === prize_id);
-    if (!prize) return alert("Select a prize.");
-    const command = buildPrizeCommand(prize, recipient_name, discord_id);
-    const payload = { prize_id, recipient_name, discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id, completed: false };
+    if (!prize) return alert("Select a prize type.");
+    const reason = String(data.get("reason") || "").trim();
+    if (!reason) return alert("Enter a reason.");
+    const command = buildPrizeCommand(prize, discord_id, reason);
+    const payload = { prize_id, recipient_name: "Event Winner", discord_id, amount: Number(prize.amount || 0), command, won_by: currentUser.id, completed: false };
     const { error } = await supabaseClient.from("ops_prize_wins").insert(payload);
     if (error) return alert(error.message);
     await writeAudit("prize.won", payload);

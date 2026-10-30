@@ -2074,3 +2074,9 @@ body {
 .hof-range-label input[type=range]{width:100%;padding:0!important}
 .hof-range-label small{color:#777f94;text-align:right}
 @media(max-width:600px){.hof-colour-top{grid-template-columns:42px 1fr}.hof-rgb{grid-column:2;justify-self:start}.hof-range-label{grid-template-columns:52px 1fr 34px}}
+
+.prize-win-form label{display:grid;gap:6px;color:var(--muted);font-size:11px;font-weight:800}
+.prize-win-form label input,.prize-win-form label select{margin-top:0}
+.command-preview-wrap{display:grid;gap:8px}
+.field-label{color:var(--muted);font-size:11px;font-weight:800}
+.command-preview-wrap .secondary-button{justify-self:start}

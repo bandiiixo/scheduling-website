@@ -197,7 +197,7 @@ create table if not exists public.ops_prizes (
   id uuid primary key default gen_random_uuid(), label text not null, code text not null unique,
   amount integer not null check (amount > 0), active boolean not null default true, created_by uuid, created_at timestamptz not null default now()
 );
-alter table public.ops_prizes add column if not exists command_template text not null default '/giveitem {discord_id} {code} {amount}';
+alter table public.ops_prizes add column if not exists command_template text not null default '!additem {discord_id} {code} {amount} {reason}';
 create table if not exists public.ops_helpers (
   id uuid primary key default gen_random_uuid(), event_id uuid not null references public.events(id) on delete cascade,
   staff_id uuid not null references public.staff(id) on delete cascade, note text, created_by uuid, created_at timestamptz not null default now(), unique(event_id, staff_id)
@@ -228,9 +228,9 @@ insert into public.ops_security_settings(id) values (1) on conflict (id) do noth
 -- Default Entertainment prizes
 insert into public.ops_prizes(label, code, amount, command_template, active)
 values
-  ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} Event Winner', true),
-  ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} Event Winner', true),
-  ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} Event Winner', true)
+  ('Dirty Money', 'dinheirosujo', 500000, '!additem {discord_id} {code} {amount} {reason}', true),
+  ('Dollars', 'dollars', 500000, '!additem {discord_id} {code} {amount} {reason}', true),
+  ('Event VIP', 'vipevento1', 1, '!additem {discord_id} {code} {amount} {reason}', true)
 on conflict (code) do update set
   label = excluded.label,
   amount = excluded.amount,
